@@ -1,0 +1,1024 @@
+<title>Relay Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1116;
+    --surface: #151a21;
+    --surface-2: #1b212a;
+    --surface-3: #222a35;
+    --line: #262e39;
+    --line-soft: #1f2630;
+    --text: #e5e8ee;
+    --muted: #8a94a3;
+    --faint: #5d6776;
+    --accent: #8ea8ff;
+    --accent-ink: #0e1116;
+    --accent-soft: rgba(142, 168, 255, 0.12);
+    --ok: #6fcf97;
+    --ok-soft: rgba(111, 207, 151, 0.12);
+    --wait: #e7b75f;
+    --wait-soft: rgba(231, 183, 95, 0.13);
+    --bad: #f27a72;
+    --bad-soft: rgba(242, 122, 114, 0.13);
+    --idle: #7d8796;
+    --idle-soft: rgba(125, 135, 150, 0.14);
+    --radius: 10px;
+    --font: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+    --pad: 12px;
+    --gap: 10px;
+    --row: 6px;
+    --fs: 14px;
+    --fs-sm: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); }
+  body {
+    margin: 0;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: var(--fs);
+    line-height: 1.5;
+    padding-inline: max(16px, 3vw);
+    padding-block: 0 48px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .dim-text { color: var(--faint); }
+  .muted { color: var(--muted); }
+  button { font: inherit; color: inherit; }
+
+  /* Center the whole page column on wide screens */
+  header.top, .usage, nav.tabs, main { width: 100%; max-width: 1280px; margin-inline: auto; }
+  header.top {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 5;
+    background: var(--bg);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+    padding-block: 14px 10px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; flex: 1 1 auto; min-width: 0; }
+  .brand h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); align-self: center; }
+  .brand .pulse.live { background: var(--ok); animation: pulse 2.4s ease-out infinite; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(111, 207, 151, 0.5); }
+    70% { box-shadow: 0 0 0 8px rgba(111, 207, 151, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(111, 207, 151, 0); }
+  }
+  @media (prefers-reduced-motion: reduce) { .brand .pulse.live { animation: none; } }
+  .crumb { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--wait); }
+  .crumb[hidden] { display: none !important; }
+  .crumb .sep { color: var(--faint); font-weight: 400; }
+  .crumb .dot { align-self: center; }
+  .crumb .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand .sub { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Plan usage strip */
+  .usage { padding-block: 10px; border-bottom: 1px solid var(--line-soft); max-width: 1280px; display: flex; flex-direction: column; gap: 8px; }
+  .usage[hidden] { display: none !important; }
+  .u-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px 24px; align-items: end; }
+  @media (max-width: 720px) { .u-row { grid-template-columns: 1fr; } }
+  .u-meter { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .u-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: var(--fs-sm); }
+  .u-name { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .u-pct { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 500; }
+  .u-track { position: relative; height: 6px; background: var(--line-soft); border-radius: 999px; }
+  .u-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--c, var(--accent)); }
+  .u-proj { position: absolute; top: 0; bottom: 0; border-radius: 0 999px 999px 0; background: var(--c, var(--accent)); opacity: 0.22; }
+  .u-pace { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text); opacity: 0.55; border-radius: 1px; }
+  .u-status { font-size: var(--fs-sm); color: var(--c, var(--muted)); min-height: 1.5em; }
+  .u-ok { --c: var(--ok); }
+  .u-warn { --c: var(--wait); }
+  .u-bad { --c: var(--bad); }
+  .u-early { --c: var(--accent); }
+  .u-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
+  @media (max-width: 720px) { .u-side { align-items: flex-start; flex-direction: row; flex-wrap: wrap; gap: 4px 12px; } }
+  .u-pill { display: inline-flex; gap: 8px; align-items: baseline; border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; background: var(--surface); color: var(--text); }
+  .u-pill .u-name { font-size: 10px; }
+  .u-pill.hot { border-color: rgba(231, 183, 95, 0.5); background: var(--wait-soft); }
+  .u-more summary { cursor: pointer; font-size: var(--fs-sm); color: var(--muted); width: max-content; }
+  .u-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; padding-top: 8px; }
+  .u-chart svg { width: 100%; height: auto; display: block; }
+  .u-chart figcaption { font-size: 11px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
+  .key { display: inline-flex; align-items: center; gap: 6px; }
+  .key i { display: inline-block; width: 14px; height: 0; border-top: 2px solid var(--k); }
+  .key i.dash { border-top-style: dashed; }
+
+  nav.tabs { display: flex; gap: 4px; overflow-x: auto; padding-block: 8px 0; scrollbar-width: thin; border-bottom: 1px solid var(--line-soft); }
+  nav.tabs button {
+    font-size: var(--fs-sm); font-weight: 600; color: var(--muted); background: transparent; border: 0;
+    border-bottom: 2px solid transparent; padding: 6px 12px 8px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 8px;
+  }
+  nav.tabs button:hover { color: var(--text); }
+  nav.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+  .count { font-family: var(--mono); font-size: 11px; background: var(--wait-soft); color: var(--wait); border-radius: 999px; padding: 1px 7px; }
+
+  main { display: flex; flex-direction: column; gap: calc(var(--gap) * 1.6); padding-top: calc(var(--gap) * 1.4); max-width: 1280px; }
+
+  .eyebrow {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint);
+    display: flex; align-items: center; gap: 10px; margin: 0 0 var(--row);
+  }
+  .eyebrow .rule { flex: 1; height: 1px; background: var(--line-soft); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--pad); }
+
+  .btn {
+    font-size: var(--fs-sm); font-weight: 600; border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
+    border-radius: 7px; padding: 3px 10px; cursor: pointer; min-height: 28px;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn.good { background: var(--ok-soft); border-color: rgba(111, 207, 151, 0.4); color: var(--ok); }
+  .btn.danger { background: var(--bad-soft); border-color: rgba(242, 122, 114, 0.4); color: var(--bad); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); padding-inline: 6px; }
+  .btn.ghost:hover { color: var(--text); border-color: var(--line); }
+  .btn[disabled] { opacity: 0.5; cursor: default; }
+  .btn-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+  /* Since you last looked */
+  .digest { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; border-color: rgba(142, 168, 255, 0.35); background: linear-gradient(90deg, var(--accent-soft), transparent 70%), var(--surface); }
+  .digest strong { font-weight: 600; }
+  .digest .facts { display: flex; flex-wrap: wrap; gap: 4px 14px; flex: 1 1 auto; font-size: var(--fs-sm); color: var(--muted); }
+  .digest .facts b { color: var(--text); font-weight: 600; font-family: var(--mono); }
+
+  /* Needs you */
+  .needs { border-color: rgba(231, 183, 95, 0.35); background: linear-gradient(180deg, rgba(231,183,95,0.06), transparent 120px), var(--surface); display: flex; flex-direction: column; gap: 10px; }
+  .n-group-h { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 0; display: flex; gap: 8px; align-items: center; }
+  .needs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .need { display: flex; flex-direction: column; gap: 4px; padding-block: 8px; border-top: 1px solid var(--line-soft); }
+  .needs-list > .need:first-child { border-top: 0; padding-top: 2px; }
+  .need-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+  .need-title { font-weight: 600; }
+  .need.done .need-title { color: var(--muted); text-decoration: line-through; }
+  .need-why { color: var(--muted); font-size: var(--fs-sm); max-width: 90ch; }
+  .need-steps { margin: 2px 0 0; padding-left: 18px; font-size: var(--fs-sm); max-width: 90ch; }
+  .need-steps li + li { margin-top: 2px; }
+  .answer { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+  .answer textarea {
+    font: inherit; font-size: var(--fs-sm); color: var(--text); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 7px; padding: 6px 8px; min-height: 52px; resize: vertical; width: 100%; max-width: 90ch;
+  }
+  .answered { font-size: var(--fs-sm); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+  .answered .you { color: var(--ok); font-weight: 600; }
+  .answered q { color: var(--text); }
+  .snooze-menu { display: inline-flex; gap: 4px; }
+  .collapser { background: none; border: 0; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; padding: 2px 0; text-align: left; }
+  .collapser:hover { color: var(--text); }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.05em;
+    text-transform: uppercase; border-radius: 999px; padding: 1px 8px; white-space: nowrap;
+  }
+  .chip.project { background: var(--accent-soft); color: var(--accent); text-transform: none; letter-spacing: 0; font-size: 12px; }
+  .chip.kind { background: var(--surface-2); color: var(--muted); }
+  .chip.high { background: var(--bad-soft); color: var(--bad); }
+  .chip.age { background: transparent; color: var(--faint); text-transform: none; letter-spacing: 0; font-weight: 500; font-family: var(--mono); padding: 0; }
+  .chip.quiet { background: var(--wait-soft); color: var(--wait); }
+  .chip.stopped { background: var(--bad-soft); color: var(--bad); }
+  .chip.tool { background: var(--surface-3); color: var(--text); text-transform: none; letter-spacing: 0; }
+  .chip.byclaude { background: var(--accent-soft); color: var(--accent); }
+  .chip.pr { text-transform: none; letter-spacing: 0; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); }
+  .chip.pr.pass { border-color: rgba(111, 207, 151, 0.45); color: var(--ok); }
+  .chip.pr.fail { border-color: rgba(242, 122, 114, 0.45); color: var(--bad); }
+  .chip.pr.running { border-color: rgba(231, 183, 95, 0.45); color: var(--wait); }
+  .chip.pr.merged { border-color: rgba(142, 168, 255, 0.45); color: var(--accent); }
+  .s-active { --c: var(--accent); --cs: var(--accent-soft); }
+  .s-done { --c: var(--ok); --cs: var(--ok-soft); }
+  .s-waiting { --c: var(--wait); --cs: var(--wait-soft); }
+  .s-blocked { --c: var(--bad); --cs: var(--bad-soft); }
+  .s-idle, .s-todo { --c: var(--idle); --cs: var(--idle-soft); }
+  .chip.state { background: var(--cs); color: var(--c); }
+  .dot.state { background: var(--c); }
+
+  /* Overview grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--gap); }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--pad);
+    display: flex; flex-direction: column; gap: var(--row); border-left: 3px solid var(--c); position: relative;
+  }
+  .card.dim { opacity: 0.55; }
+  .card.dim:hover { opacity: 1; }
+  .card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .card h3 { margin: 0; font-size: 16px; font-weight: 700; }
+  .card h3 button { background: none; border: 0; padding: 0; font-weight: 700; cursor: pointer; text-align: left; }
+  .card h3 button:hover { color: var(--accent); }
+  .card-streams { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .card-streams li { display: grid; grid-template-columns: 10px 1fr; gap: 8px; align-items: baseline; font-size: var(--fs-sm); }
+  .card-streams li .dot { transform: translateY(1px); }
+  .card-streams .st-title { font-weight: 600; }
+  .card-foot { display: flex; justify-content: space-between; gap: 6px 10px; color: var(--muted); font-size: var(--fs-sm); flex-wrap: wrap; align-items: center; }
+  .card-foot .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pin { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 12px; font-weight: 600; padding: 2px 4px; border-radius: 5px; }
+  .pin[aria-pressed="true"] { color: var(--wait); }
+  .pin:hover { color: var(--text); }
+  .shipped { font-size: var(--fs-sm); color: var(--muted); }
+  .shipped b { color: var(--ok); font-weight: 600; }
+  .waiting-on { font-size: var(--fs-sm); color: var(--wait); }
+
+  /* Activity */
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .filters button { font-size: 12px; border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 1px 10px; cursor: pointer; }
+  .filters button[aria-pressed="true"] { background: var(--accent-soft); border-color: rgba(142, 168, 255, 0.4); color: var(--accent); }
+  .feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .feed-day { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding: 8px 0 2px; }
+  .feed-item { display: grid; grid-template-columns: 56px auto 1fr; gap: 10px; align-items: baseline; padding-block: 4px; border-top: 1px solid var(--line-soft); font-size: var(--fs-sm); }
+  .feed-item time { color: var(--faint); }
+  .feed-item.new { background: linear-gradient(90deg, var(--accent-soft), transparent 60%); }
+
+  /* Project view */
+  .proj-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
+  .proj-head h2 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -0.015em; text-wrap: balance; }
+  .proj-head .meta { color: var(--muted); font-size: var(--fs-sm); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .stream { display: flex; flex-direction: column; gap: 10px; border-left: 3px solid var(--c); }
+  .stream-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; align-items: baseline; }
+  .stream-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
+  .stream-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); color: var(--muted); align-items: baseline; }
+  .current { margin: 0; max-width: 90ch; }
+  .callout { display: flex; gap: 10px; align-items: baseline; padding: 6px 12px; border-radius: 8px; background: var(--wait-soft); color: var(--wait); font-size: var(--fs-sm); }
+  .callout.bad { background: var(--bad-soft); color: var(--bad); }
+  .cols { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: var(--gap); align-items: start; }
+  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .step { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; padding-block: var(--row); border-top: 1px solid var(--line-soft); align-items: baseline; }
+  .step:first-child { border-top: 0; padding-top: 0; }
+  .step .mark { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--c); align-self: center; justify-self: center; }
+  .step.s-done .mark { background: var(--c); }
+  .step.s-active .mark { background: var(--cs); box-shadow: 0 0 0 3px var(--cs); }
+  .step.s-done .step-title { color: var(--muted); }
+  .step-note { display: block; color: var(--muted); font-size: var(--fs-sm); }
+  .side { display: flex; flex-direction: column; gap: var(--gap); }
+  .sub-h { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin: 0 0 4px; }
+  .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .list li { padding-block: 4px; border-top: 1px solid var(--line-soft); font-size: var(--fs-sm); display: flex; justify-content: space-between; gap: 12px; }
+  .list li:first-child { border-top: 0; padding-top: 0; }
+  .list time { color: var(--faint); white-space: nowrap; }
+  .links { display: flex; flex-wrap: wrap; gap: 6px; }
+  .links a { font-size: var(--fs-sm); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; background: var(--surface-2); }
+  .links a:hover { text-decoration: none; border-color: var(--accent); }
+
+  .notice { color: var(--muted); font-size: var(--fs-sm); border: 1px dashed var(--line); border-radius: var(--radius); padding: var(--pad); }
+  .empty { color: var(--muted); font-size: var(--fs-sm); margin: 0; }
+  .toast {
+    position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; font-size: var(--fs-sm); color: var(--text); max-width: min(420px, calc(100vw - 32px));
+  }
+</style>
+
+<header class="top">
+  <div class="brand">
+    <span class="pulse" id="pulse" aria-hidden="true"></span>
+    <h1>Relay Board</h1>
+    <span class="crumb" id="crumb" hidden></span>
+    <span class="sub" id="sub">Connecting…</span>
+  </div>
+</header>
+<section class="usage" id="usage" aria-label="Claude plan usage" hidden></section>
+<nav class="tabs" id="tabs" role="tablist" aria-label="Projects"></nav>
+<main id="main"></main>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+(() => {
+  const STATES = ["active", "waiting", "blocked", "done", "idle", "todo"];
+  const STATE_LABEL = { active: "Working", waiting: "Waiting", blocked: "Blocked", done: "Done", idle: "Idle", todo: "To do" };
+  const HOUR = 3600e3, DAY = 24 * HOUR, WEEK = 7 * DAY;
+  const state = {
+    projects: [], streams: [], needs: [], usage: [],
+    tab: "overview", live: false, db: null, ready: false,
+    open: {}, drafts: {}, feedFilter: "all", feedLimit: 40,
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v == null || v === false) continue;
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) if (kid != null && kid !== false) n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    return n;
+  };
+  const st = (s) => (STATES.includes(s) ? s : "idle");
+  const safeUrl = (u) => (typeof u === "string" && /^https?:\/\//i.test(u) ? u : null);
+  const appUrl = (u) => (typeof u === "string" && /^claude:\/\//i.test(u) ? u : null);
+  const link = (label, url) => (safeUrl(url) ? el("a", { href: url, target: "_blank", rel: "noopener" }, label) : el("span", {}, label));
+  const ts = (iso) => Date.parse(iso) || 0;
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
+
+  function ago(iso) {
+    const t = ts(iso);
+    if (!t) return "";
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  }
+  function span(ms) {
+    const m = Math.floor(ms / 60000);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 48) return `${h}h`;
+    return `${Math.floor(h / 24)}d`;
+  }
+  const timeEl = (iso) => el("time", { datetime: iso || "", class: "mono", title: iso ? new Date(iso).toLocaleString() : "" }, ago(iso));
+  const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const whenLabel = (ms) => {
+    const d = new Date(ms);
+    const sameDay = new Date().toDateString() === d.toDateString();
+    return sameDay ? `today ${clock(ms)}` : `${d.toLocaleDateString(undefined, { weekday: "short" })} ${clock(ms)}`;
+  };
+
+  let toastTimer;
+  function showToast(msg) {
+    const t = $("toast");
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 4500);
+  }
+  async function write(path, data, okMsg) {
+    if (!state.db) return false;
+    try {
+      await state.db.doc(path).update(data);
+      if (okMsg) showToast(okMsg);
+      return true;
+    } catch (e) {
+      showToast(e?.code === "invalid_argument" ? "You can view this board but not change it." : "Couldn't save that. Try again in a moment.");
+      return false;
+    }
+  }
+
+  // ---- Model -------------------------------------------------------------
+  // A project is a meta doc (projects/<slug>) plus one workstream per chat (streams/<slug>--<topic>).
+  // Older agents still write status fields onto the project doc; show those as a "Main" stream.
+  const LEGACY_KEYS = ["status", "currentTask", "waitingOn", "steps", "blockers", "links", "recent"];
+  function streamsFor(slug) {
+    const p = state.projects.find((x) => x.id === slug) || {};
+    const list = state.streams.filter((s) => s.project === slug);
+    if (p.status) {
+      list.push({
+        id: `${slug}--legacy`, project: slug, title: "Main", legacy: true,
+        agent: p.agent, status: p.status, currentTask: p.currentTask, waitingOn: p.waitingOn,
+        steps: p.steps, blockers: p.blockers, links: p.links, recent: p.recent, updatedAt: p.updatedAt,
+      });
+    }
+    return list.sort((a, b) => rankStream(a) - rankStream(b) || ts(b.updatedAt) - ts(a.updatedAt));
+  }
+  const STATUS_RANK = { blocked: 0, active: 1, waiting: 2, todo: 3, idle: 4, done: 5 };
+  const rankStream = (s) => STATUS_RANK[st(s.status)] ?? 4;
+  function allProjectSlugs() {
+    const slugs = new Set(state.projects.map((p) => p.id));
+    for (const s of state.streams) if (s.project) slugs.add(s.project);
+    return [...slugs];
+  }
+  function projectInfo(slug) {
+    const meta = state.projects.find((p) => p.id === slug) || { id: slug, name: slug };
+    const streams = streamsFor(slug);
+    const live = streams.filter((s) => s.status !== "done");
+    const status = streams.length ? st([...streams].sort((a, b) => rankStream(a) - rankStream(b))[0].status) : "idle";
+    const updatedAt = [...streams.map((s) => s.updatedAt), meta.updatedAt].filter(Boolean).sort().pop();
+    const idleWeek = !live.some((s) => ["active", "waiting", "blocked"].includes(s.status)) && Date.now() - ts(updatedAt) > WEEK;
+    return { ...meta, id: slug, name: meta.name || slug, streams, liveStreams: live, status, updatedAt, dim: idleWeek };
+  }
+  function orderedProjects() {
+    return allProjectSlugs().map(projectInfo).sort((a, b) =>
+      (b.pinned === true) - (a.pinned === true) || a.dim - b.dim || (a.order ?? 99) - (b.order ?? 99) || ts(b.updatedAt) - ts(a.updatedAt));
+  }
+
+  // Quiet detection: a chat that says it's working but hasn't written for a while has likely stopped.
+  function quietness(s) {
+    const age = Date.now() - ts(s.updatedAt);
+    if (!ts(s.updatedAt)) return null;
+    if (s.status === "active") {
+      if (age > 4 * HOUR) return { cls: "stopped", label: `Silent ${span(age)} · may have stopped` };
+      if (age > 90 * 60e3) return { cls: "quiet", label: `Quiet ${span(age)}` };
+    }
+    if (s.status === "waiting" && !/\b(you|your|user|approval|approve|decide|decision|merge)\b/i.test(s.waitingOn || "") && age > 6 * HOUR) {
+      return { cls: "quiet", label: `Still waiting after ${span(age)}` };
+    }
+    return null;
+  }
+
+  // ---- Needs -------------------------------------------------------------
+  const isSnoozed = (n) => ts(n.snoozedUntil) > Date.now();
+  const answerState = (n) => (n.answer ? n.answerState || "answered" : null);
+  const openNeeds = (slug) => state.needs.filter((n) => !n.done && (!slug || n.project === slug));
+  const actionable = (slug) => openNeeds(slug).filter((n) => !isSnoozed(n) && !["answered", "relayed"].includes(answerState(n)));
+  const projectName = (slug) => state.projects.find((p) => p.id === slug)?.name || slug;
+  const KIND_LABEL = { approval: "Approval", decision: "Decision", task: "Manual task" };
+
+  function answerNeed(n, choice) {
+    const note = (state.drafts[n.id] || "").trim();
+    if (!choice && !note) { showToast("Write an answer first."); return; }
+    const patch = {
+      answer: { choice: choice || null, note: note || null, at: new Date().toISOString() },
+      answerState: "answered",
+    };
+    if (n.kind === "task" && choice === "Done") Object.assign(patch, { done: true, doneAt: new Date().toISOString(), doneBy: "you" });
+    write(`needs/${n.id}`, patch, "Saved. The chat picks it up at the next board check.").then((ok) => {
+      if (ok) { delete state.drafts[n.id]; state.open[`reply-${n.id}`] = false; }
+    });
+  }
+  const changeAnswer = (n) => write(`needs/${n.id}`, { answer: null, answerState: null });
+  const closeNeed = (n) => write(`needs/${n.id}`, { done: true, doneAt: new Date().toISOString(), doneBy: "you" }, "Marked done.");
+  const reopenNeed = (n) => write(`needs/${n.id}`, { done: false, doneAt: null, doneBy: null });
+  function snooze(n, until) {
+    write(`needs/${n.id}`, { snoozedUntil: until ? new Date(until).toISOString() : null }, until ? `Snoozed until ${whenLabel(until)}.` : "Back in the list.");
+    state.open[`snooze-${n.id}`] = false;
+  }
+  const tomorrowMorning = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0); return d.getTime(); };
+
+  function answerControls(n) {
+    const box = el("div", { class: "answer" });
+    const choices = Array.isArray(n.options) && n.options.length ? n.options
+      : n.kind === "approval" ? ["Approve", "Decline"] : n.kind === "task" ? ["Done"] : [];
+    const row = el("div", { class: "btn-row" });
+    for (const c of choices) {
+      const cls = /^(approve|done|yes)\b/i.test(c) ? "btn good" : /^(decline|no|reject)\b/i.test(c) ? "btn danger" : "btn";
+      row.append(el("button", { type: "button", class: cls, onclick: () => answerNeed(n, c) }, c));
+    }
+    const replyKey = `reply-${n.id}`;
+    row.append(el("button", { type: "button", class: "btn ghost", "aria-expanded": String(!!state.open[replyKey]), onclick: () => { state.open[replyKey] = !state.open[replyKey]; render(); } },
+      choices.length ? "Add a note" : "Reply"));
+    const snoozeKey = `snooze-${n.id}`;
+    if (state.open[snoozeKey]) {
+      row.append(el("span", { class: "snooze-menu" },
+        el("button", { type: "button", class: "btn ghost", onclick: () => snooze(n, Date.now() + 3 * HOUR) }, "3 hours"),
+        el("button", { type: "button", class: "btn ghost", onclick: () => snooze(n, tomorrowMorning()) }, "Tomorrow 08:00"),
+        el("button", { type: "button", class: "btn ghost", onclick: () => snooze(n, Date.now() + WEEK) }, "1 week")));
+    } else {
+      row.append(el("button", { type: "button", class: "btn ghost", onclick: () => { state.open[snoozeKey] = true; render(); } }, "Snooze"));
+    }
+    if (n.kind !== "task") row.append(el("button", { type: "button", class: "btn ghost", title: "Close without sending anything to the chat", onclick: () => closeNeed(n) }, "Close"));
+    box.append(row);
+    if (state.open[replyKey]) {
+      const id = `draft-${n.id}`;
+      const ta = el("textarea", { id, "aria-label": `Answer for ${n.title}`, placeholder: choices.length ? "Optional note for the chat" : "Your answer. The chat reads this and continues." });
+      ta.value = state.drafts[n.id] || "";
+      ta.addEventListener("input", (e) => { state.drafts[n.id] = e.target.value; });
+      box.append(ta);
+      box.append(el("div", { class: "btn-row" },
+        el("button", { type: "button", class: "btn primary", onclick: () => answerNeed(n, null) }, choices.length ? "Send note only" : "Send answer"),
+        choices.length ? el("span", { class: "dim-text" }, "or pick a button above to send it with your note") : null));
+    }
+    return box;
+  }
+
+  function answeredLine(n) {
+    const a = n.answer || {};
+    const s = answerState(n);
+    const status = s === "handled" ? "Chat handled it" : s === "relayed" ? `Sent to the chat ${ago(n.relayedAt)}` : "Waiting for a chat to pick it up";
+    return el("div", { class: "answered" },
+      el("span", { class: "you" }, "You answered"),
+      a.choice ? el("strong", {}, a.choice) : null,
+      a.note ? el("q", {}, a.note) : null,
+      el("span", { class: "dim-text" }, `· ${status}`),
+      s === "answered" ? el("button", { type: "button", class: "btn ghost", onclick: () => changeAnswer(n) }, "Change") : null);
+  }
+
+  function needItem(n, showProject) {
+    const li = el("li", { class: `need${n.done ? " done" : ""}` });
+    const age = Date.now() - ts(n.createdAt);
+    li.append(el("div", { class: "need-head" },
+      el("span", { class: "need-title" }, n.title || "Untitled"),
+      showProject && n.project ? el("button", { type: "button", class: "chip project", style: "border:0;cursor:pointer", onclick: () => setTab(n.project) }, projectName(n.project)) : null,
+      n.kind ? el("span", { class: "chip kind" }, KIND_LABEL[n.kind] || n.kind) : null,
+      n.priority === "high" ? el("span", { class: "chip high" }, "High") : null,
+      n.done && n.doneBy && n.doneBy !== "you" ? el("span", { class: "chip byclaude" }, "Done by Claude") : null,
+      ts(n.createdAt) && !n.done ? el("span", { class: "chip age", title: new Date(ts(n.createdAt)).toLocaleString() }, `waiting ${span(age)}`) : null,
+      isSnoozed(n) ? el("span", { class: "chip age" }, `snoozed until ${whenLabel(ts(n.snoozedUntil))}`) : null,
+      n.link ? link("Open", n.link) : null));
+    if (n.why) li.append(el("div", { class: "need-why" }, n.why));
+    if (Array.isArray(n.steps) && n.steps.length) li.append(el("ol", { class: "need-steps" }, n.steps.map((s) => el("li", {}, s))));
+    if (n.done) {
+      if (n.answer) li.append(answeredLine(n));
+      li.append(el("div", { class: "btn-row" }, el("button", { type: "button", class: "btn ghost", onclick: () => reopenNeed(n) }, "Reopen")));
+    } else if (isSnoozed(n)) {
+      li.append(el("div", { class: "btn-row" }, el("button", { type: "button", class: "btn ghost", onclick: () => snooze(n, null) }, "Unsnooze")));
+    } else if (n.answer) {
+      li.append(answeredLine(n));
+    } else {
+      li.append(answerControls(n));
+    }
+    return li;
+  }
+
+  function collapsible(key, label, items, showProject) {
+    if (!items.length) return null;
+    const wrap = el("div", {});
+    const open = !!state.open[key];
+    wrap.append(el("button", { type: "button", class: "collapser", "aria-expanded": String(open), onclick: () => { state.open[key] = !open; render(); } },
+      `${open ? "Hide" : "Show"} ${items.length} ${label}`));
+    if (open) wrap.append(el("ul", { class: "needs-list" }, items.map((n) => needItem(n, showProject))));
+    return wrap;
+  }
+
+  function needsPanel(slug) {
+    const items = state.needs.filter((n) => !slug || n.project === slug);
+    const byAge = (a, b) => (b.priority === "high") - (a.priority === "high") || ts(a.createdAt) - ts(b.createdAt);
+    const open = items.filter((n) => !n.done);
+    const act = open.filter((n) => !isSnoozed(n) && !n.answer).sort(byAge);
+    const answered = open.filter((n) => !isSnoozed(n) && n.answer).sort((a, b) => ts(b.answer?.at) - ts(a.answer?.at));
+    const snoozed = open.filter(isSnoozed).sort((a, b) => ts(a.snoozedUntil) - ts(b.snoozedUntil));
+    const done = items.filter((n) => n.done).sort((a, b) => ts(b.doneAt) - ts(a.doneAt));
+    const sec = el("section", { "aria-labelledby": `needs-h-${slug || "all"}` });
+    sec.append(el("h2", { class: "eyebrow", id: `needs-h-${slug || "all"}` }, "Needs you", el("span", { class: "rule" }), el("span", { class: "mono" }, `${act.length} open`)));
+    const panel = el("div", { class: "panel needs" });
+    if (!act.length) panel.append(el("p", { class: "empty" }, "Nothing is waiting on you right now."));
+    for (const kind of ["approval", "decision", "task"]) {
+      const group = act.filter((n) => (n.kind || "task") === kind || (kind === "task" && !["approval", "decision"].includes(n.kind)));
+      if (!group.length) continue;
+      panel.append(el("div", {},
+        el("h3", { class: "n-group-h" }, { approval: "Approvals", decision: "Decisions", task: "Tasks for you" }[kind], el("span", { class: "mono dim-text" }, group.length)),
+        el("ul", { class: "needs-list" }, group.map((n) => needItem(n, !slug)))));
+    }
+    if (answered.length) {
+      panel.append(el("div", {},
+        el("h3", { class: "n-group-h" }, "Answered, waiting on the chat", el("span", { class: "mono dim-text" }, answered.length)),
+        el("ul", { class: "needs-list" }, answered.map((n) => needItem(n, !slug)))));
+    }
+    const extra = [collapsible(`snoozed-${slug || "all"}`, "snoozed", snoozed, !slug), collapsible(`done-${slug || "all"}`, "done", done, !slug)].filter(Boolean);
+    if (extra.length) panel.append(el("div", { class: "btn-row", style: "gap:4px 18px" }, extra));
+    sec.append(panel);
+    return sec;
+  }
+
+  // ---- Since you last looked (computed here, costs no agent tokens) ------
+  const SEEN_KEY = "relay-last-seen";
+  let lastSeen = Number(store.get(SEEN_KEY)) || 0;
+  if (!lastSeen) { lastSeen = Date.now(); store.set(SEEN_KEY, String(lastSeen)); }
+  function markSeen() { lastSeen = Date.now(); store.set(SEEN_KEY, String(lastSeen)); render(); }
+  let visibleSince = Date.now();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") visibleSince = Date.now();
+    else if (Date.now() - visibleSince > 60e3) { lastSeen = Date.now(); store.set(SEEN_KEY, String(lastSeen)); }
+  });
+
+  function allActivity() {
+    const items = [];
+    for (const p of orderedProjects()) {
+      for (const s of p.streams) {
+        for (const r of Array.isArray(s.recent) ? s.recent : []) {
+          if (ts(r.at)) items.push({ ...r, project: p.id, projectName: p.name, stream: s.title });
+        }
+      }
+    }
+    return items.sort((a, b) => ts(b.at) - ts(a.at));
+  }
+
+  function digest() {
+    const since = lastSeen;
+    if (Date.now() - since < 10 * 60e3) return null;
+    const updates = allActivity().filter((r) => ts(r.at) > since).length;
+    const newNeeds = state.needs.filter((n) => !n.done && ts(n.createdAt) > since).length;
+    const handled = state.needs.filter((n) => n.done && n.doneBy && n.doneBy !== "you" && ts(n.doneAt) > since).length;
+    const quiet = orderedProjects().flatMap((p) => p.streams).filter((s) => quietness(s)).length;
+    if (!updates && !newNeeds && !handled && !quiet) return null;
+    const facts = el("div", { class: "facts" },
+      updates ? el("span", {}, el("b", {}, updates), ` update${updates === 1 ? "" : "s"}`) : null,
+      newNeeds ? el("span", {}, el("b", {}, newNeeds), ` new for you`) : null,
+      handled ? el("span", {}, el("b", {}, handled), ` closed by Claude`) : null,
+      quiet ? el("span", {}, el("b", {}, quiet), ` chat${quiet === 1 ? "" : "s"} gone quiet`) : null);
+    return el("section", { class: "panel digest", "aria-label": "Since you last looked" },
+      el("strong", {}, `Since ${whenLabel(since)}`), facts,
+      el("button", { type: "button", class: "btn", onclick: markSeen }, "Mark as seen"));
+  }
+
+  // ---- Activity feed -------------------------------------------------------
+  function activityPanel() {
+    const all = allActivity();
+    if (!all.length) return null;
+    const sec = el("section", { "aria-labelledby": "act-h" });
+    sec.append(el("h2", { class: "eyebrow", id: "act-h" }, "Activity", el("span", { class: "rule" })));
+    const panel = el("div", { class: "panel" });
+    const slugs = [...new Set(all.map((r) => r.project))];
+    const filters = el("div", { class: "filters", role: "group", "aria-label": "Filter activity by project" },
+      el("button", { type: "button", "aria-pressed": String(state.feedFilter === "all"), onclick: () => { state.feedFilter = "all"; render(); } }, "All"),
+      slugs.map((s) => el("button", { type: "button", "aria-pressed": String(state.feedFilter === s), onclick: () => { state.feedFilter = s; render(); } }, projectName(s))));
+    panel.append(filters);
+    const rows = all.filter((r) => state.feedFilter === "all" || r.project === state.feedFilter);
+    const feed = el("ul", { class: "feed" });
+    let day = "";
+    for (const r of rows.slice(0, state.feedLimit)) {
+      const d = new Date(ts(r.at));
+      const today = new Date(); const y = new Date(Date.now() - DAY);
+      const label = d.toDateString() === today.toDateString() ? "Today" : d.toDateString() === y.toDateString() ? "Yesterday" : d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
+      if (label !== day) { day = label; feed.append(el("li", { class: "feed-day" }, label)); }
+      feed.append(el("li", { class: `feed-item${ts(r.at) > lastSeen ? " new" : ""}` },
+        el("time", { class: "mono", datetime: r.at, title: d.toLocaleString() }, clock(ts(r.at))),
+        el("span", { class: "chip project" }, r.projectName),
+        el("span", {}, r.url ? link(r.text, r.url) : r.text)));
+    }
+    panel.append(feed);
+    if (rows.length > state.feedLimit) panel.append(el("button", { type: "button", class: "collapser", onclick: () => { state.feedLimit += 40; render(); } }, `Show more (${rows.length - state.feedLimit} older)`));
+    sec.append(panel);
+    return sec;
+  }
+
+  // ---- Project cards -------------------------------------------------------
+  function prChip(pr) {
+    if (!pr || !(pr.number || pr.url)) return null;
+    const ci = pr.state === "merged" ? "merged" : pr.ci;
+    const text = pr.state === "merged" ? "merged" : pr.state === "closed" ? "closed" : ci === "pass" ? "CI passing" : ci === "fail" ? "CI failing" : ci === "running" ? "CI running" : "open";
+    const label = `${pr.number ? `#${pr.number}` : "PR"} · ${text}`;
+    const chip = el("span", { class: `chip pr ${ci || ""}` }, label);
+    return safeUrl(pr.url) ? el("a", { href: pr.url, target: "_blank", rel: "noopener", style: "text-decoration:none" }, chip) : chip;
+  }
+  const togglePin = (p) => write(`projects/${p.id}`, { pinned: !p.pinned });
+
+  function projectCard(p) {
+    const s = st(p.status);
+    const shown = (p.liveStreams.length ? p.liveStreams : p.streams).slice(0, 3);
+    const quiet = p.streams.map(quietness).filter(Boolean);
+    const shipped = p.streams.map((x) => x.lastShipped).filter((x) => x && ts(x.at)).sort((a, b) => ts(b.at) - ts(a.at))[0];
+    const prs = p.streams.map((x) => x.pr).filter((x) => x && x.state !== "closed").slice(0, 3);
+    const needCount = actionable(p.id).length;
+    return el("article", { class: `card s-${s}${p.dim ? " dim" : ""}` },
+      el("div", { class: "card-head" },
+        el("h3", {}, el("button", { type: "button", onclick: () => setTab(p.id) }, p.name)),
+        el("div", { class: "btn-row" },
+          el("button", { type: "button", class: "pin", "aria-pressed": String(!!p.pinned), title: p.pinned ? "Unpin" : "Pin to top", onclick: () => togglePin(p) }, p.pinned ? "Pinned" : "Pin"),
+          el("span", { class: "chip state" }, STATE_LABEL[s]))),
+      shown.length ? el("ul", { class: "card-streams" }, shown.map((x) => el("li", { class: `s-${st(x.status)}` },
+        el("span", { class: "dot state" }),
+        el("span", {}, p.streams.length > 1 ? el("span", { class: "st-title" }, `${x.title}: `) : null, x.currentTask || "No active task")))) : el("div", { class: "muted" }, "No active task"),
+      quiet.length ? el("div", {}, el("span", { class: `chip ${quiet[0].cls}` }, quiet[0].label)) : null,
+      shipped ? el("div", { class: "shipped" }, el("b", {}, "Shipped "), shipped.url ? link(shipped.text, shipped.url) : shipped.text, " ", timeEl(shipped.at)) : null,
+      el("div", { class: "card-foot" },
+        el("span", { class: "badges" }, prs.map(prChip), p.streams.length > 1 ? el("span", { class: "chip kind" }, `${p.liveStreams.length} chats`) : null),
+        el("span", {}, needCount ? `${needCount} need you · ` : "", timeEl(p.updatedAt))));
+  }
+
+  function overview() {
+    const frag = document.createDocumentFragment();
+    const d = digest();
+    if (d) frag.append(d);
+    frag.append(needsPanel(null));
+    const projects = orderedProjects();
+    const sec = el("section", { "aria-labelledby": "proj-h" });
+    sec.append(el("h2", { class: "eyebrow", id: "proj-h" }, "Projects", el("span", { class: "rule" }), el("span", { class: "mono" }, `${projects.length}`)));
+    if (!projects.length) sec.append(el("p", { class: "notice" }, "No projects yet. The first agent to work on a project adds its tab here."));
+    sec.append(el("div", { class: "grid" }, projects.map(projectCard)));
+    frag.append(sec);
+    const act = activityPanel();
+    if (act) frag.append(act);
+    return frag;
+  }
+
+  // ---- Project view ---------------------------------------------------------
+  function streamPanel(s) {
+    const ss = st(s.status);
+    const q = quietness(s);
+    const steps = Array.isArray(s.steps) ? s.steps : [];
+    const done = steps.filter((x) => x.state === "done").length;
+    const session = s.session || {};
+    const chatLink = appUrl(session.link);
+    const panel = el("section", { class: `panel stream s-${ss}`, "aria-label": s.title || "Workstream" });
+    panel.append(el("div", { class: "stream-head" },
+      el("h3", {}, s.title || "Workstream"),
+      el("div", { class: "btn-row" }, q ? el("span", { class: `chip ${q.cls}` }, q.label) : null, el("span", { class: "chip state" }, STATE_LABEL[ss]))));
+    panel.append(el("div", { class: "stream-meta" },
+      s.tool && s.tool !== "Claude Code" ? el("span", { class: "chip tool" }, s.tool) : null,
+      s.agent ? el("span", {}, s.agent) : null,
+      session.title ? el("span", {}, "Chat: ", chatLink ? el("a", { href: chatLink, title: "Opens the chat in the Claude app" }, session.title) : el("span", { class: "mono" }, session.title)) : null,
+      prChip(s.pr),
+      el("span", {}, "Updated ", timeEl(s.updatedAt))));
+    panel.append(el("p", { class: "current" }, s.currentTask || "No active task"));
+    if (s.waitingOn) panel.append(el("div", { class: "callout" }, el("strong", {}, "Waiting on"), s.waitingOn));
+    const cols = el("div", { class: "cols" });
+    const left = el("div", {});
+    left.append(el("h4", { class: "sub-h" }, `Steps ${steps.length ? `· ${done}/${steps.length}` : ""}`));
+    if (!steps.length) left.append(el("p", { class: "empty" }, "No steps recorded."));
+    else left.append(el("ol", { class: "steps" }, steps.map((x) => {
+      const xs = st(x.state);
+      return el("li", { class: `step s-${xs}` },
+        el("span", { class: "mark", "aria-hidden": "true" }),
+        el("span", {}, el("span", { class: "step-title" }, x.link ? link(x.title, x.link) : x.title), x.note ? el("span", { class: "step-note" }, x.note) : null),
+        el("span", { class: "chip state" }, STATE_LABEL[xs]));
+    })));
+    cols.append(left);
+    const side = el("div", { class: "side" });
+    const blockers = Array.isArray(s.blockers) ? s.blockers : [];
+    if (blockers.length) side.append(el("div", {}, el("h4", { class: "sub-h" }, "Blockers & risks"),
+      el("div", { style: "display:flex;flex-direction:column;gap:6px" }, blockers.map((x) => el("div", { class: `callout${x.severity === "high" ? " bad" : ""}` }, x.text)))));
+    const links = Array.isArray(s.links) ? s.links.filter((l) => safeUrl(l.url)) : [];
+    if (links.length) side.append(el("div", {}, el("h4", { class: "sub-h" }, "Links"), el("div", { class: "links" }, links.map((x) => link(x.label, x.url)))));
+    const recent = Array.isArray(s.recent) ? s.recent.slice(0, 15) : [];
+    side.append(el("div", {}, el("h4", { class: "sub-h" }, "Recently finished"),
+      recent.length ? el("ul", { class: "list" }, recent.map((x) => el("li", {}, x.url ? link(x.text, x.url) : el("span", {}, x.text), timeEl(x.at))))
+        : el("p", { class: "empty" }, "Nothing yet.")));
+    cols.append(side);
+    panel.append(cols);
+    return panel;
+  }
+
+  function projectView(p) {
+    const frag = document.createDocumentFragment();
+    const s = st(p.status);
+    frag.append(el("section", { class: "proj-head" },
+      el("div", {},
+        el("h2", {}, p.name),
+        el("div", { class: "meta" },
+          p.repo ? link(p.repo, safeUrl(p.repoUrl) || null) : null,
+          p.path ? el("span", { class: "mono" }, p.path) : null,
+          el("span", {}, "Updated ", timeEl(p.updatedAt)))),
+      el("div", { class: "btn-row" },
+        el("button", { type: "button", class: "pin", "aria-pressed": String(!!p.pinned), onclick: () => togglePin(p) }, p.pinned ? "Pinned" : "Pin"),
+        el("span", { class: `chip state s-${s}` }, el("span", { class: "dot state" }), STATE_LABEL[s]))));
+    frag.append(needsPanel(p.id));
+    const live = p.streams.filter((x) => x.status !== "done");
+    const finished = p.streams.filter((x) => x.status === "done");
+    const sec = el("section", { "aria-label": "Workstreams", style: "display:flex;flex-direction:column;gap:var(--gap)" });
+    sec.append(el("h2", { class: "eyebrow" }, "Workstreams", el("span", { class: "rule" }), el("span", { class: "mono" }, `${live.length} open`)));
+    if (!p.streams.length) sec.append(el("p", { class: "notice" }, "No workstreams yet."));
+    live.forEach((x) => sec.append(streamPanel(x)));
+    if (finished.length) {
+      const key = `finished-${p.id}`;
+      sec.append(el("button", { type: "button", class: "collapser", "aria-expanded": String(!!state.open[key]), onclick: () => { state.open[key] = !state.open[key]; render(); } },
+        `${state.open[key] ? "Hide" : "Show"} ${finished.length} finished workstream${finished.length === 1 ? "" : "s"}`));
+      if (state.open[key]) finished.forEach((x) => sec.append(streamPanel(x)));
+    }
+    frag.append(sec);
+    return frag;
+  }
+
+  // ---- Plan usage -------------------------------------------------------
+  const RATE_WINDOW = 36 * HOUR;
+  const MIN_ELAPSED = 12 * HOUR;
+  const num = (v) => (typeof v === "number" && isFinite(v) ? v : null);
+  function readings(key) {
+    return state.usage
+      .map((s) => ({ at: ts(s.at), pct: num(s[key]?.pct), resetsAt: ts(s[key]?.resetsAt) }))
+      .filter((r) => r.at && r.pct != null && r.resetsAt)
+      .sort((a, b) => a.at - b.at);
+  }
+  const sameWeek = (a, b) => Math.abs(a - b) < 60e3;
+  // Linear interpolation of a week's readings at a given offset from its start.
+  function valueAt(week, weekStart, off) {
+    const pts = [{ o: 0, p: 0 }, ...week.map((r) => ({ o: r.at - weekStart, p: r.pct }))];
+    if (off <= 0) return 0;
+    for (let i = 1; i < pts.length; i++) {
+      if (pts[i].o >= off) {
+        const a = pts[i - 1], b = pts[i];
+        return a.p + ((b.p - a.p) * (off - a.o)) / Math.max(1, b.o - a.o);
+      }
+    }
+    return null; // beyond the last reading
+  }
+
+  function projectWeek(key) {
+    const all = readings(key);
+    if (!all.length) return null;
+    const latest = all[all.length - 1];
+    const now = Date.now();
+    const start = latest.resetsAt - WEEK;
+    const week = all.filter((r) => sameWeek(r.resetsAt, latest.resetsAt));
+    const lastWeek = all.filter((r) => sameWeek(r.resetsAt, latest.resetsAt - WEEK));
+    const base = { pct: latest.pct, resetsAt: latest.resetsAt, at: latest.at, start, week, lastWeek, pace: Math.min(100, Math.max(0, ((now - start) / WEEK) * 100)) };
+    if (latest.resetsAt <= now) return { ...base, kind: "reset" };
+    const daysLeft = (latest.resetsAt - now) / DAY;
+    base.perDay = daysLeft > 0.05 ? Math.max(0, 100 - latest.pct) / daysLeft : null;
+    const elapsed = latest.at - start;
+
+    // 1) Last week's rhythm: scale the rest of last week's curve by how this week compares so far.
+    const lwStart = start - WEEK;
+    const lwLast = lastWeek[lastWeek.length - 1];
+    if (lastWeek.length >= 4 && lwLast && lwLast.at >= lwStart + WEEK - 12 * HOUR) {
+      const lNow = valueAt(lastWeek, lwStart, elapsed);
+      if (lNow != null && lNow >= 3 && latest.pct >= 2) {
+        const ratio = latest.pct / lNow;
+        const lEnd = lwLast.pct;
+        const projected = latest.pct + ratio * Math.max(0, lEnd - lNow);
+        let runOut = null;
+        if (projected > 100) {
+          for (let off = elapsed; off <= WEEK; off += HOUR) {
+            const v = valueAt(lastWeek, lwStart, off);
+            if (v != null && latest.pct + ratio * (v - lNow) >= 100) { runOut = start + off; break; }
+          }
+        }
+        return { ...base, kind: projected > 100 ? "bad" : projected > 90 ? "warn" : "ok", projected, runOut, basis: "last week's rhythm" };
+      }
+    }
+    if (elapsed < MIN_ELAPSED) return { ...base, kind: "early" };
+    // 2) Straight line from the trailing ~36h, else the week so far.
+    const from = [...week].reverse().find((r) => latest.at - r.at >= RATE_WINDOW);
+    const rate = from ? (latest.pct - from.pct) / (latest.at - from.at) : latest.pct / elapsed;
+    const projected = latest.pct + Math.max(0, rate) * (latest.resetsAt - latest.at);
+    const runOut = rate > 0 && projected > 100 ? latest.at + (100 - latest.pct) / rate : null;
+    return { ...base, kind: projected > 100 ? "bad" : projected > 90 ? "warn" : "ok", projected, runOut, basis: from ? "the last 36 hours" : "this week so far" };
+  }
+
+  function weekMeter(label, key) {
+    const p = projectWeek(key);
+    if (!p) return null;
+    const cls = { ok: "u-ok", warn: "u-warn", bad: "u-bad", early: "u-early", reset: "u-early" }[p.kind];
+    const track = el("div", { class: "u-track" },
+      el("span", { class: "u-fill", style: `width:${Math.min(100, p.pct)}%` }),
+      p.projected != null ? el("span", { class: "u-proj", style: `left:${Math.min(100, p.pct)}%;width:${Math.max(0, Math.min(100, p.projected) - Math.min(100, p.pct))}%` }) : null,
+      p.kind !== "reset" ? el("span", { class: "u-pace", style: `left:${p.pace}%`, title: `Even pace: ${Math.round(p.pace)}% by now` }) : null);
+    const budget = p.perDay != null ? ` · ~${p.perDay < 10 ? p.perDay.toFixed(1) : Math.round(p.perDay)}%/day left` : "";
+    let status;
+    if (p.kind === "reset") status = "Week has reset. Waiting for a new reading.";
+    else if (p.kind === "early") status = el("span", {}, "Too early to project", el("span", { class: "dim-text" }, `${budget} · resets ${whenLabel(p.resetsAt)}`));
+    else if (p.kind === "bad") status = el("span", {}, p.runOut ? `Runs out ~${whenLabel(p.runOut)} at this pace` : "Over budget at this pace", el("span", { class: "dim-text" }, `${budget} · resets ${whenLabel(p.resetsAt)}`));
+    else status = el("span", {}, `On track · ~${Math.round(p.projected)}% at reset`, el("span", { class: "dim-text" }, `${budget} · ${whenLabel(p.resetsAt)}`));
+    return el("div", { class: `u-meter ${cls}`, title: p.basis ? `Projection based on ${p.basis}` : "" },
+      el("div", { class: "u-top" }, el("span", { class: "u-name" }, label), el("span", { class: "u-pct" }, `${p.pct}%`)),
+      track,
+      el("div", { class: "u-status" }, status));
+  }
+
+  // Small week chart: this week, last week (faint), even pace, and the projection.
+  function weekChart(label, key) {
+    const p = projectWeek(key);
+    if (!p) return null;
+    const W = 600, H = 132, L = 30, R = 8, T = 8, B = 20;
+    const x = (off) => L + (Math.min(WEEK, Math.max(0, off)) / WEEK) * (W - L - R);
+    const y = (pct) => T + (1 - Math.min(110, Math.max(0, pct)) / 110) * (H - T - B);
+    const NS = "http://www.w3.org/2000/svg";
+    const s = (tag, attrs) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
+    const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `${label}: ${p.pct}% used this week` });
+    for (const g of [0, 25, 50, 75, 100]) {
+      svg.append(s("line", { x1: L, x2: W - R, y1: y(g), y2: y(g), stroke: "var(--line-soft)", "stroke-width": 1 }));
+      const t = s("text", { x: L - 6, y: y(g) + 3, "text-anchor": "end", fill: "var(--faint)", "font-size": 9, "font-family": "var(--mono)" }); t.textContent = g; svg.append(t);
+    }
+    for (let d = 0; d < 7; d++) {
+      const t = s("text", { x: x(d * DAY + DAY / 2), y: H - 5, "text-anchor": "middle", fill: "var(--faint)", "font-size": 9 });
+      t.textContent = new Date(p.start + d * DAY + DAY / 2).toLocaleDateString(undefined, { weekday: "short" });
+      svg.append(t);
+      if (d) svg.append(s("line", { x1: x(d * DAY), x2: x(d * DAY), y1: T, y2: H - B, stroke: "var(--line-soft)", "stroke-width": 1 }));
+    }
+    svg.append(s("line", { x1: x(0), y1: y(0), x2: x(WEEK), y2: y(100), stroke: "var(--muted)", "stroke-width": 1, "stroke-dasharray": "3 4", opacity: 0.6 }));
+    const poly = (rows, startMs, attrs) => {
+      if (!rows.length) return;
+      const pts = [[x(0), y(0)], ...rows.map((r) => [x(r.at - startMs), y(r.pct)])].map((q) => q.join(",")).join(" ");
+      svg.append(s("polyline", { points: pts, fill: "none", "stroke-linejoin": "round", "stroke-linecap": "round", ...attrs }));
+    };
+    poly(p.lastWeek, p.start - WEEK, { stroke: "var(--muted)", "stroke-width": 1.5, opacity: 0.45 });
+    const color = { ok: "var(--ok)", warn: "var(--wait)", bad: "var(--bad)" }[p.kind] || "var(--accent)";
+    if (p.projected != null && p.kind !== "reset") {
+      const endOff = p.runOut ? p.runOut - p.start : WEEK;
+      const endPct = p.runOut ? 100 : p.projected;
+      svg.append(s("line", { x1: x(p.at - p.start), y1: y(p.pct), x2: x(endOff), y2: y(endPct), stroke: color, "stroke-width": 1.5, "stroke-dasharray": "4 3", opacity: 0.8 }));
+    }
+    poly(p.week, p.start, { stroke: color, "stroke-width": 2.25 });
+    svg.append(s("circle", { cx: x(p.at - p.start), cy: y(p.pct), r: 3.5, fill: color }));
+    return el("figure", { class: "u-chart", style: "margin:0" },
+      el("div", { class: "u-name", style: "margin-bottom:2px" }, label),
+      svg,
+      el("figcaption", {},
+        el("span", { class: "key", style: `--k:${color}` }, el("i"), "This week"),
+        el("span", { class: "key", style: "--k:var(--muted)" }, el("i"), "Last week"),
+        el("span", { class: "key", style: "--k:var(--muted)" }, el("i", { class: "dash" }), "Even pace"),
+        p.basis ? el("span", {}, `Projection: ${p.basis}`) : null));
+  }
+
+  function renderUsage() {
+    const box = $("usage");
+    const latest = [...state.usage].sort((a, b) => ts(a.at) - ts(b.at)).pop();
+    if (!latest) { box.hidden = true; return; }
+    box.hidden = false;
+    const side = el("div", { class: "u-side" });
+    const five = latest.fiveHour;
+    if (num(five?.pct) != null && ts(five.resetsAt) > Date.now()) {
+      side.append(el("span", { class: `u-pill${five.pct >= 85 ? " hot" : ""}`, title: five.pct >= 85 ? "Close to the 5-hour limit. Hold off on starting big jobs." : "" },
+        el("span", { class: "u-name" }, "5-hour"), el("span", { class: "mono" }, `${five.pct}%`),
+        el("span", { class: "dim-text" }, five.pct >= 85 ? `near limit · resets ${clock(ts(five.resetsAt))}` : `resets ${clock(ts(five.resetsAt))}`)));
+    } else {
+      side.append(el("span", { class: "u-pill" }, el("span", { class: "u-name" }, "5-hour"), el("span", { class: "dim-text" }, "window reset")));
+    }
+    side.append(el("span", {}, "Reading ", timeEl(latest.at), latest.project ? ` · ${latest.project}` : ""));
+    const row = el("div", { class: "u-row" }, ...[weekMeter("Weekly · all models", "weekAll"), weekMeter("Weekly · Fable", "weekFable"), side].filter(Boolean));
+    const more = el("details", { class: "u-more" });
+    if (state.open.usageChart) more.open = true;
+    more.addEventListener("toggle", () => { state.open.usageChart = more.open; store.set("relay-usage-chart", more.open ? "1" : "0"); });
+    more.append(el("summary", {}, "Week curve"));
+    if (more.open) more.append(el("div", { class: "u-charts" }, ...[weekChart("All models", "weekAll"), weekChart("Fable", "weekFable")].filter(Boolean)));
+    else more.addEventListener("toggle", () => renderUsage(), { once: true });
+    box.replaceChildren(row, more);
+  }
+  state.open.usageChart = store.get("relay-usage-chart") === "1";
+
+  let pruned = false;
+  async function pruneUsage() {
+    if (pruned || !state.db) return;
+    pruned = true;
+    const cutoff = Date.now() - 15 * DAY;
+    for (const s of state.usage) {
+      if (ts(s.at) && ts(s.at) < cutoff) { try { await state.db.doc(`usage/${s.id}`).delete(); } catch { return; } }
+    }
+  }
+
+  // ---- Tabs + render ---------------------------------------------------------
+  function readTab() {
+    const m = location.hash.match(/^#p=([\w.-]+)$/);
+    if (m) return m[1];
+    return store.get("relay-tab") || "overview";
+  }
+  function setTab(id) {
+    state.tab = id;
+    store.set("relay-tab", id);
+    history.replaceState(null, "", id === "overview" ? location.pathname + location.search : `#p=${id}`);
+    render();
+    window.scrollTo({ top: 0 });
+  }
+  state.tab = readTab();
+
+  function renderTabs(projects) {
+    const nav = $("tabs");
+    nav.replaceChildren();
+    const mk = (id, label, extra) => el("button", { type: "button", role: "tab", "aria-selected": String(state.tab === id), onclick: () => setTab(id) }, extra, label);
+    const b = mk("overview", "Overview", null);
+    const allOpen = actionable().length;
+    if (allOpen) b.append(el("span", { class: "count", title: "Open items that need you" }, allOpen));
+    nav.append(b);
+    for (const p of projects) {
+      const t = mk(p.id, p.name, el("span", { class: `dot state s-${st(p.status)}` }));
+      const n = actionable(p.id).length;
+      if (n) t.append(el("span", { class: "count" }, n));
+      nav.append(t);
+    }
+  }
+
+  function render() {
+    const projects = orderedProjects();
+    if (state.tab !== "overview" && !projects.some((p) => p.id === state.tab) && projects.length) state.tab = "overview";
+    renderTabs(projects);
+    renderUsage();
+    const main = $("main");
+    const focusId = document.activeElement?.id;
+    main.replaceChildren();
+    if (!state.db && state.ready) {
+      main.append(el("p", { class: "notice" }, "Live data isn't available in this view. Open the board on claude.ai to see your projects."));
+      return;
+    }
+    const p = projects.find((x) => x.id === state.tab);
+    // Keep the selected project's name in the sticky header so it stays visible while scrolling
+    const crumb = $("crumb");
+    crumb.hidden = !p;
+    crumb.replaceChildren(...(p ? [
+      el("span", { class: "sep", "aria-hidden": "true" }, "›"),
+      el("span", { class: `dot state s-${st(p.status)}`, title: STATE_LABEL[st(p.status)] }),
+      el("span", { class: "name" }, p.name),
+    ] : []));
+    main.append(p ? projectView(p) : overview());
+    if (focusId) { const f = document.getElementById(focusId); if (f) { f.focus(); if (f.tagName === "TEXTAREA") f.setSelectionRange(f.value.length, f.value.length); } }
+    const latest = [...projects.map((x) => x.updatedAt), ...state.needs.map((x) => x.updatedAt || x.createdAt)].filter(Boolean).sort().pop();
+    $("sub").textContent = state.db ? (latest ? `Last update ${ago(latest)}` : "Live") : "Connecting…";
+  }
+
+  // Avoid re-rendering under the cursor while someone is typing an answer.
+  let pending = false;
+  function scheduleRender() {
+    if (document.activeElement?.tagName === "TEXTAREA") {
+      if (!pending) { pending = true; document.activeElement.addEventListener("blur", () => { pending = false; render(); }, { once: true }); }
+      return;
+    }
+    render();
+  }
+
+  window.addEventListener("hashchange", () => { state.tab = readTab(); render(); });
+  setInterval(scheduleRender, 60000);
+  render();
+
+  (async () => {
+    const db = window.claude?.use ? await window.claude.use("db") : null;
+    state.ready = true;
+    if (!db) { render(); return; }
+    state.db = db;
+    state.live = true;
+    $("pulse").classList.add("live");
+    const onErr = () => { $("pulse").classList.remove("live"); $("sub").textContent = "Live updates paused. Reload to reconnect."; };
+    const sub = (name, apply) => db.collection(name).onSnapshot((snap) => {
+      apply(snap.docs.filter((d) => d.exists).map((d) => ({ id: d.id, ...d.data() })));
+      scheduleRender();
+    }, onErr);
+    sub("projects", (rows) => { state.projects = rows; });
+    sub("streams", (rows) => { state.streams = rows; });
+    sub("needs", (rows) => { state.needs = rows; });
+    db.collection("usage").onSnapshot((snap) => {
+      state.usage = snap.docs.filter((d) => d.exists).map((d) => ({ id: d.id, ...d.data() }));
+      renderUsage();
+      pruneUsage();
+    }, () => {});
+  })();
+})();
+</script>
