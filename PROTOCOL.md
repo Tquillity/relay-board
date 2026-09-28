@@ -68,7 +68,7 @@ If the doc is missing, `set` it. Do not put status on the project doc.
 | `currentTask` | string | One sentence |
 | `waitingOn` | string \| null | What you are waiting for |
 | `updatedAt` | ISO string | Set on every write |
-| `steps` | `[{title, state, note?, link?}]` | `state` uses the same values as `status` |
+| `steps` | `[{title, state, size?, by?, note?, link?}]` | `state` uses the same values as `status`. `size`: `S` \| `M` \| `L` (see progress below). `by: "you"` marks a step only the user can do |
 | `blockers` | `[{text, severity}]` | `severity`: `high` \| `normal` |
 | `links` | `[{label, url}]` | |
 | `recent` | `[{text, url?, at}]` | Newest first, at most 15 |
@@ -79,6 +79,22 @@ Set `status: "done"` when the chat's work is finished.
 
 The page flags quiet streams on its own. An `active` stream with no write for 90 minutes shows as quiet, and after 4 hours as "may have stopped". A `waiting` stream shows as quiet after 6 hours, unless `waitingOn` contains one of the words "you", "your", "user", "approval", "approve", "decide", "decision" or "merge". So when you are waiting on the user, say so in those words (for example "Waiting on your approval"). Agents do not need to send heartbeats.
 
+#### Progress %
+
+When a project tab is open, the header shows how far its live work has come, for example `22% / 100% − 12%`:
+
+- The first number is the share done. Its colour goes from red through yellow to green.
+- The last number, in orange, is the share waiting on the user. While it is above zero, the first number can reach at most 100 minus that share.
+
+The page computes this from the steps of the project's `active`, `waiting` and `blocked` streams, plus open `needs` items that belong to those streams (or to no stream). Each step weighs `S` = 1, `M` = 2 (the default) and `L` = 4, and each open need weighs 1. Steps with `by: "you"` and unanswered needs (snoozed ones included) count as the user's share. An answered need counts as done. The indicator is hidden when the project has no live stream, or its live streams have no steps and no open needs.
+
+To keep it meaningful, agents should:
+- list the whole plan as steps up front, not only the current step;
+- give each step a rough `size` (S = minutes, M = default, L = hours);
+- mark steps only the user can do with `by: "you"`.
+
+This adds a few characters to writes agents already make. There are no extra reads or writes.
+
 ### `needs/<slug>-<short-id>`: things only the user can do
 
 For secrets or keys, account or billing settings, sign-ins, approvals before merging to main or touching production, decisions, and anything a permission rule blocked. Check that the item is not already listed first.
@@ -86,7 +102,7 @@ For secrets or keys, account or billing settings, sign-ins, approvals before mer
 | Field | Type | Notes |
 | --- | --- | --- |
 | `project` | string | Project slug |
-| `stream` | string | Your stream id |
+| `stream` | string | Your stream's doc id, e.g. `myrepo--full-review` (without `streams/`) |
 | `session` | string | Your session id. Needed for the answer relay |
 | `kind` | string | `task` \| `approval` \| `decision` |
 | `priority` | string | `high` \| `normal` |
@@ -157,6 +173,7 @@ Skip items without a `session`. Answered and relayed items are left out of the o
 These run in the browser and cost agents nothing:
 
 - Quiet and stopped chat detection (see streams above).
+- The progress % in the header (see streams above).
 - "Since you last looked" digest. The last-seen time is kept in the viewer's `localStorage`.
 - The activity feed, built from every stream's `recent`.
 - Usage projections, the even-pace marker and the week curve.

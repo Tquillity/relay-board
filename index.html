@@ -25,6 +25,8 @@
     --bad-soft: rgba(242, 122, 114, 0.13);
     --idle: #7d8796;
     --idle-soft: rgba(125, 135, 150, 0.14);
+    --you: #ff9a3c;
+    --you-soft: rgba(255, 154, 60, 0.14);
     --radius: 10px;
     --font: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
@@ -67,7 +69,7 @@
     padding-block: 14px 10px;
     border-bottom: 1px solid var(--line-soft);
   }
-  .brand { display: flex; align-items: baseline; gap: 12px; flex: 1 1 auto; min-width: 0; }
+  .brand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; flex: 1 1 auto; min-width: 0; }
   .brand h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
   .brand .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); align-self: center; }
   .brand .pulse.live { background: var(--ok); animation: pulse 2.4s ease-out infinite; }
@@ -83,6 +85,20 @@
   .crumb .dot { align-self: center; }
   .crumb .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .brand .sub { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Progress of the selected project's live work: done / 100% − share waiting on you */
+  .progress { margin-left: auto; align-self: center; display: inline-flex; align-items: center; gap: 10px; flex: none; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13px; }
+  .progress[hidden] { display: none !important; }
+  .progress .p-nums { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+  .progress .p-done { font-weight: 600; color: var(--pc); }
+  .progress .p-total { color: var(--ok); }
+  .progress .p-you { font-weight: 700; color: var(--you); }
+  .progress .p-sep { color: var(--faint); }
+  .progress .p-bar { position: relative; width: 96px; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
+  .progress .p-bar i { position: absolute; top: 0; bottom: 0; }
+  .progress .p-bar .f-done { left: 0; background: var(--pc); }
+  .progress .p-bar .f-you { right: 0; background: var(--you); }
+  @media (max-width: 560px) { .progress .p-bar { display: none; } }
 
   /* Plan usage strip */
   .usage { padding-block: 10px; border-bottom: 1px solid var(--line-soft); max-width: 1280px; display: flex; flex-direction: column; gap: 8px; }
@@ -189,6 +205,7 @@
   .chip.stopped { background: var(--bad-soft); color: var(--bad); }
   .chip.tool { background: var(--surface-3); color: var(--text); text-transform: none; letter-spacing: 0; }
   .chip.byclaude { background: var(--accent-soft); color: var(--accent); }
+  .chip.you { background: var(--you-soft); color: var(--you); }
   .chip.pr { text-transform: none; letter-spacing: 0; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); }
   .chip.pr.pass { border-color: rgba(111, 207, 151, 0.45); color: var(--ok); }
   .chip.pr.fail { border-color: rgba(242, 122, 114, 0.45); color: var(--bad); }
@@ -282,6 +299,7 @@
     <h1>Relay Board</h1>
     <span class="crumb" id="crumb" hidden></span>
     <span class="sub" id="sub">Connecting…</span>
+    <span class="progress" id="progress" hidden></span>
   </div>
 </header>
 <section class="usage" id="usage" aria-label="Claude plan usage" hidden></section>
@@ -416,6 +434,42 @@
     }
     return null;
   }
+
+  // Progress of a project's live work, from the steps agents already write (zero extra agent cost).
+  // Each step weighs S=1, M=2 (default), L=4. Steps marked by: "you" and open "Needs you" items for
+  // live work are the user's share; an answered item counts as the user's part done.
+  const SIZE_WEIGHT = { S: 1, M: 2, L: 4 };
+  const LIVE = ["active", "waiting", "blocked"];
+  function progressFor(slug) {
+    const live = streamsFor(slug).filter((s) => LIVE.includes(s.status));
+    if (!live.length) return null;
+    const liveIds = new Set(live.map((s) => s.id));
+    let total = 0, done = 0, you = 0;
+    for (const s of live) {
+      for (const x of Array.isArray(s.steps) ? s.steps : []) {
+        if (!x || typeof x !== "object") continue;
+        const w = SIZE_WEIGHT[String(x.size || "").toUpperCase()] || SIZE_WEIGHT.M;
+        total += w;
+        if (x.state === "done") done += w;
+        else if (x.by === "you") you += w;
+      }
+    }
+    for (const n of state.needs) {
+      const sid = n.stream ? String(n.stream).replace(/^streams\//, "") : null;
+      if (n.done || n.project !== slug || (sid && !liveIds.has(sid))) continue;
+      total += SIZE_WEIGHT.S;
+      if (answerState(n)) done += SIZE_WEIGHT.S;
+      else you += SIZE_WEIGHT.S;
+    }
+    if (!total) return null;
+    // Round the user's share up and the done share down, so "done" never reads as finished while
+    // the user still has something to do.
+    const youPct = you ? Math.max(1, Math.ceil((you / total) * 100)) : 0;
+    const donePct = Math.min(Math.floor((done / total) * 100), 100 - youPct);
+    return { donePct, youPct };
+  }
+  // Red (0%) through yellow to green (100%).
+  const progressColor = (pct) => `hsl(${Math.round(4 + pct * 1.3)} 72% 62%)`;
 
   // ---- Needs -------------------------------------------------------------
   const isSnoozed = (n) => ts(n.snoozedUntil) > Date.now();
@@ -712,7 +766,7 @@
       return el("li", { class: `step s-${xs}` },
         el("span", { class: "mark", "aria-hidden": "true" }),
         el("span", {}, el("span", { class: "step-title" }, x.link ? link(x.title, x.link) : x.title), x.note ? el("span", { class: "step-note" }, x.note) : null),
-        el("span", { class: "chip state" }, STATE_LABEL[xs]));
+        el("span", { class: "btn-row" }, x.by === "you" && xs !== "done" ? el("span", { class: "chip you" }, "You") : null, el("span", { class: "chip state" }, STATE_LABEL[xs])));
     })));
     cols.append(left);
     const side = el("div", { class: "side" });
@@ -958,6 +1012,27 @@
     }
   }
 
+  function renderProgress(p) {
+    const box = $("progress");
+    const pr = p ? progressFor(p.id) : null;
+    box.hidden = !pr;
+    if (!pr) { box.replaceChildren(); return; }
+    box.style.setProperty("--pc", progressColor(pr.donePct));
+    box.title = `${pr.donePct}% of the live work in ${p.name} is done`
+      + (pr.youPct ? `. ${pr.youPct}% is waiting on you, so it can reach at most ${100 - pr.youPct}% until you do your part.` : ".")
+      + " Based on step sizes, not time or tokens.";
+    box.replaceChildren(
+      el("span", { class: "p-nums" },
+        el("span", { class: "p-done" }, `${pr.donePct}%`),
+        el("span", { class: "p-sep" }, "/"),
+        el("span", { class: "p-total" }, "100%"),
+        pr.youPct ? el("span", { class: "p-sep" }, "−") : null,
+        pr.youPct ? el("span", { class: "p-you" }, `${pr.youPct}%`) : null),
+      el("span", { class: "p-bar", "aria-hidden": "true" },
+        el("i", { class: "f-done", style: `width:${pr.donePct}%` }),
+        pr.youPct ? el("i", { class: "f-you", style: `width:${pr.youPct}%` }) : null));
+  }
+
   function render() {
     const projects = orderedProjects();
     if (state.tab !== "overview" && !projects.some((p) => p.id === state.tab) && projects.length) state.tab = "overview";
@@ -979,6 +1054,7 @@
       el("span", { class: `dot state s-${st(p.status)}`, title: STATE_LABEL[st(p.status)] }),
       el("span", { class: "name" }, p.name),
     ] : []));
+    renderProgress(p);
     main.append(p ? projectView(p) : overview());
     if (focusId) { const f = document.getElementById(focusId); if (f) { f.focus(); if (f.tagName === "TEXTAREA") f.setSelectionRange(f.value.length, f.value.length); } }
     const latest = [...projects.map((x) => x.updatedAt), ...state.needs.map((x) => x.updatedAt || x.createdAt)].filter(Boolean).sort().pop();

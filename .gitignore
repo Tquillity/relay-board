@@ -1,0 +1,5 @@
+# Local agent config; never commit (this repo is public)
+CLAUDE.md
+.claude/
+.mcp.json
+.env*

@@ -6,6 +6,7 @@ The Relay Board is a live dashboard of all Claude agent work across the user's p
 
 - One tab per project, with one card per chat ("workstream"): status, current task, steps, blockers, PR, recent activity.
 - A cross-project **Needs you** list: tasks, approvals and decisions only the user can handle. The user can answer them on the board, and the answer is relayed back to the chat that asked.
+- A progress indicator in the header for the open project, for example `22% / 100% − 12%`. The first number is the share done; the orange one is the share waiting on the user.
 - Plan usage bars (weekly all models, weekly Fable, 5-hour) with projections.
 
 Agents write the data; the page does all the analysis (quiet-chat detection, "Since you last looked" digest, activity feed, usage projections). This keeps the agents' token cost low.
@@ -42,6 +43,10 @@ Commit every published change, so `main` always matches what is live.
    This expects the page's single `<script>` and `</script>` tags each alone on a line at column 0.
 
 2. After publishing, run one `ArtifactData` `list` for each collection the change touches (`projects`, `streams`, `needs` or `usage`). Check that the documents still have the shape the page expects.
+
+## No secrets
+
+This repo is public. It must never contain secrets: no tokens, keys, passwords or connection strings, and no data copied from the board's database. The board URL is fine to publish, because the artifact itself is private.
 
 ## Not yet verified
 
