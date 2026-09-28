@@ -1,10 +1,12 @@
 # Relay Board
 
+[![CI](https://github.com/Tquillity/relay-board/actions/workflows/ci.yml/badge.svg)](https://github.com/Tquillity/relay-board/actions/workflows/ci.yml)
+
 **One page to follow every Claude Code chat you have running, across all your projects.**
 
 When several AI coding agents work in parallel, it's hard to keep track of which one is making progress, which one has quietly stopped, and which one is waiting for *you*: an approval, a decision, a key only you can add. Relay Board answers that at a glance. Agents post short status updates as they work, and the board turns them into project tabs, a single "Needs you" list, progress bars and a "since you last looked" summary.
 
-It is a single-file [claude.ai artifact](https://support.anthropic.com/en/articles/9487310-what-are-artifacts-and-how-do-i-use-them): about 1,400 lines of vanilla JavaScript and CSS, with no dependencies and no build step. The data lives in the artifact's built-in database.
+It is a single-file [claude.ai artifact](https://support.anthropic.com/en/articles/9487310-what-are-artifacts-and-how-do-i-use-them): about 1,500 lines of vanilla JavaScript and CSS, with no dependencies and no build step. The data lives in the artifact's built-in database.
 
 **[Try the live demo →](https://tquillity.github.io/relay-board/demo/)** (made-up projects and data)
 
@@ -36,6 +38,7 @@ Claude Code chats ──(short status writes, one per milestone)──▶ artifa
 - **Agents write facts; the page does the thinking.** Agents write four small collections: `projects`, `streams`, `needs` and `usage`. Progress, projections, quiet detection, the digest and archiving are all computed in the browser. Keeping the board current therefore costs agents very few tokens.
 - **Answers flow back.** When you answer a "Needs you" item, the next agent that writes to the board claims the answer with a versioned write, so two agents can't both take it. It then messages the chat that asked.
 - **Safe by construction.** The page builds all its DOM with `textContent`, never `innerHTML`. It only links `http(s)` URLs, and it never deletes a record before its summary is safely archived.
+- **Pure core, thin UI.** The page has two scripts: a core of pure functions (progress, quiet detection, the digest, usage projections, what to archive) that takes the data and the current time as arguments, and a UI that renders it and talks to the database.
 
 The full data model and the rules agents follow are in [`PROTOCOL.md`](PROTOCOL.md).
 
@@ -53,11 +56,26 @@ Open `docs/demo/index.html` in a browser. It is the real `index.html` with an in
 npm run check   # checks that the page and the demo data parse, and that the demo is up to date
 ```
 
+## Tests
+
+```bash
+npm test            # everything
+npm run test:unit   # unit tests only, well under a second
+npm run test:e2e    # the demo in headless Chrome
+```
+
+The tests use Node's built-in test runner, so there is still nothing to install.
+
+- **Unit tests** load the page's core script straight from `index.html` into a sandbox with no DOM, and check it against the rules in [`PROTOCOL.md`](PROTOCOL.md). They cover progress weights and rounding (including a randomised check that done plus waiting-on-you never passes 100%), when a project counts as finished, quiet thresholds, needs and snoozing, History and archiving, usage projections, and the digest. Malformed data, unsafe links and exact boundaries are covered too. Every unit test runs against a fixed clock.
+- **End-to-end tests** build the demo, load it in headless Chrome and check what renders: tabs and badges, the progress header, the foil on the finished project, the digest, and History. They are skipped if Chrome isn't found. Set `CHROME=/path/to/chrome` to point at one.
+
+CI runs `npm run check` and `npm test` on every push to `main` and on pull requests.
+
 ## Set up your own board
 
 1. In [claude.ai](https://claude.ai), publish `index.html` as an artifact with the `db` capability enabled. Keep it private: it will show your projects.
 2. Give your agents the board's URL and the rules in [`PROTOCOL.md`](PROTOCOL.md). A global instruction file works well, for example `~/.claude/CLAUDE.md` for Claude Code, so that every chat in every project follows them.
-3. To change the page later, edit `index.html`, run `npm run check`, and republish it to the same artifact. The stored data carries over.
+3. To change the page later, edit `index.html`, run `npm run check` and `npm test`, and republish it to the same artifact. The stored data carries over.
 
 ## Known limitations
 
@@ -69,11 +87,13 @@ npm run check   # checks that the page and the demo data parse, and that the dem
 
 | Path | What it is |
 | --- | --- |
-| [`index.html`](index.html) | The board: markup, styles and script in one file |
+| [`index.html`](index.html) | The board: markup, styles, the pure core script and the UI script in one file |
 | [`PROTOCOL.md`](PROTOCOL.md) | Data model and the rules agents follow |
 | [`demo/`](demo) | Made-up data, an in-memory database, and the demo build script |
 | [`docs/demo/`](docs/demo) | The built demo, served by GitHub Pages |
 | [`scripts/check.mjs`](scripts/check.mjs) | Dependency-free checks |
+| [`test/`](test) | Unit tests of the core, and end-to-end tests of the demo |
+| [`.github/workflows/`](.github/workflows) | CI: checks and tests on pushes to `main` and on pull requests |
 | [`docs/screenshots/`](docs/screenshots) | Screenshots taken from the demo, and how to retake them |
 
 ## License

@@ -163,22 +163,29 @@
 //   ?open=history,finished  unfolds matching section headers and "Show …" lists
 //   ?only=history           hides every section of a project view except its header and History
 (() => {
-  // Long enough for the mock's first snapshots to arrive and the page to render.
-  const RENDER_DELAY_MS = 400;
+  // The page renders once the fonts stylesheet has loaded and the mock's first snapshots arrive,
+  // which can take a while on a slow network. Keep looking for each section until it shows up.
+  const RETRY_MS = 100, GIVE_UP_MS = 3000;
   const q = new URLSearchParams(location.search);
 
   if (q.get("open")) {
-    setTimeout(() => {
-      for (const word of q.get("open").split(",")) {
+    const pending = new Set(q.get("open").split(","));
+    const started = Date.now();
+    const unfold = () => {
+      for (const word of [...pending]) {
         // "Show N finished workstreams" and similar lists
         const re = new RegExp(`^Show .*${word}`, "i");
-        [...document.querySelectorAll(".collapser")].filter((b) => re.test(b.textContent)).forEach((b) => b.click());
+        const lists = [...document.querySelectorAll(".collapser")].filter((b) => re.test(b.textContent));
+        lists.forEach((b) => b.click());
         // Folded section headers, e.g. ?open=history
-        [...document.querySelectorAll(".eyebrow-btn[aria-expanded=false], .digest-toggle[aria-expanded=false]")]
-          .filter((b) => b.textContent.replace(/^\W+/, "").toLowerCase().startsWith(word.toLowerCase()))
-          .forEach((b) => b.click());
+        const heads = [...document.querySelectorAll(".eyebrow-btn[aria-expanded=false], .digest-toggle[aria-expanded=false]")]
+          .filter((b) => b.textContent.replace(/^\W+/, "").toLowerCase().startsWith(word.toLowerCase()));
+        heads.forEach((b) => b.click());
+        if (lists.length || heads.length) pending.delete(word);
       }
-    }, RENDER_DELAY_MS);
+      if (pending.size && Date.now() - started < GIVE_UP_MS) setTimeout(unfold, RETRY_MS);
+    };
+    setTimeout(unfold, RETRY_MS);
   }
 
   if (q.get("only") === "history") {
@@ -554,10 +561,14 @@
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script>
+// ---- Core: pure logic, no DOM ----
 // Agents only write plain facts to the board (status, steps, needs, usage readings). Everything
 // derived from them (progress, quiet chats, the digest, usage projections, archiving) is computed
 // here in the page, so none of it costs agent tokens.
-(() => {
+// This first script is that logic, kept pure: no DOM, storage or clock. Functions take the board
+// data explicitly (`data` = { projects, streams, needs, archive }) and, where time matters, `now`
+// in ms, so the unit tests in test/ can run it in Node. The second script below is the UI.
+globalThis.RelayCore = (() => {
   // ---- Tuning ---------------------------------------------------------
   const MINUTE = 60e3, HOUR = 60 * MINUTE, DAY = 24 * HOUR, WEEK = 7 * DAY;
   const TICK = MINUTE;                      // re-render so relative times stay current
@@ -574,6 +585,346 @@
 
   const STATES = ["active", "waiting", "blocked", "done", "idle", "todo"];
   const STATE_LABEL = { active: "Working", waiting: "Waiting", blocked: "Blocked", done: "Done", idle: "Idle", todo: "To do" };
+
+  // ---- Basics ---------------------------------------------------------
+  const st = (s) => (STATES.includes(s) ? s : "idle");
+  const safeUrl = (u) => (typeof u === "string" && /^https?:\/\//i.test(u) ? u : null);
+  const appUrl = (u) => (typeof u === "string" && /^claude:\/\//i.test(u) ? u : null);
+  const ts = (iso) => Date.parse(iso) || 0;
+  const num = (v) => (typeof v === "number" && isFinite(v) ? v : null);
+  const clip = (v, n = 300) => (typeof v === "string" ? v.slice(0, n) : null);
+  // One collection of the board data, always as an array.
+  const rows = (data, name) => (data && Array.isArray(data[name]) ? data[name] : []);
+
+  function ago(iso, now) {
+    const t = ts(iso);
+    if (!t) return "";
+    const s = Math.max(0, (now - t) / 1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  }
+  function span(ms) {
+    const m = Math.floor(ms / MINUTE);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 48) return `${h}h`;
+    return `${Math.floor(h / 24)}d`;
+  }
+
+  // ---- Model ----------------------------------------------------------
+  // A project is a meta doc (projects/<slug>) plus one workstream per chat (streams/<slug>--<topic>).
+  // Older agents still write status fields onto the project doc; show those as a "Main" stream.
+  const STATUS_RANK = { blocked: 0, active: 1, waiting: 2, todo: 3, idle: 4, done: 5 };
+  const rankStream = (s) => STATUS_RANK[st(s.status)] ?? 4;
+  function streamsFor(data, slug) {
+    const p = rows(data, "projects").find((x) => x.id === slug) || {};
+    const list = rows(data, "streams").filter((s) => s.project === slug);
+    if (p.status) {
+      list.push({
+        id: `${slug}--legacy`, project: slug, title: "Main", legacy: true,
+        agent: p.agent, status: p.status, currentTask: p.currentTask, waitingOn: p.waitingOn,
+        steps: p.steps, blockers: p.blockers, links: p.links, recent: p.recent, updatedAt: p.updatedAt,
+      });
+    }
+    return list.sort((a, b) => rankStream(a) - rankStream(b) || ts(b.updatedAt) - ts(a.updatedAt));
+  }
+  function allProjectSlugs(data) {
+    const slugs = new Set(rows(data, "projects").map((p) => p.id));
+    for (const s of rows(data, "streams")) if (s.project) slugs.add(s.project);
+    return [...slugs];
+  }
+  function projectInfo(data, slug, now) {
+    const meta = rows(data, "projects").find((p) => p.id === slug) || { id: slug, name: slug };
+    const streams = streamsFor(data, slug);
+    const live = streams.filter((s) => s.status !== "done");
+    const status = streams.length ? st([...streams].sort((a, b) => rankStream(a) - rankStream(b))[0].status) : "idle";
+    const updatedAt = [...streams.map((s) => s.updatedAt), meta.updatedAt].filter(Boolean).sort().pop();
+    const busy = live.some((s) => st(s.status) !== "idle");
+    // Finished for now: something got done, nothing is in progress and nothing waits on the user.
+    // Idle streams (parked ideas, backlogs) don't count as unfinished work.
+    const didWork = streams.some((s) => s.status === "done") || rows(data, "archive").some((a) => a.project === slug);
+    const complete = !busy && didWork && !rows(data, "needs").some((n) => !n.done && n.project === slug);
+    const idleWeek = !busy && now - ts(updatedAt) > WEEK;
+    return { ...meta, id: slug, name: meta.name || slug, streams, liveStreams: live, status: complete ? "done" : status, updatedAt, complete, dim: idleWeek && !complete };
+  }
+  function orderedProjects(data, now) {
+    return allProjectSlugs(data).map((slug) => projectInfo(data, slug, now)).sort((a, b) =>
+      (b.pinned === true) - (a.pinned === true) || a.dim - b.dim || (a.order ?? 99) - (b.order ?? 99) || ts(b.updatedAt) - ts(a.updatedAt));
+  }
+
+  // Quiet detection: a chat that says it's working but hasn't written for a while has likely stopped.
+  const WAITS_ON_USER = /\b(you|your|user|approval|approve|decide|decision|merge)\b/i;
+  function quietness(s, now) {
+    if (!ts(s.updatedAt)) return null;
+    const age = now - ts(s.updatedAt);
+    if (s.status === "active") {
+      if (age > STOPPED_AFTER) return { cls: "stopped", label: `Silent ${span(age)} · may have stopped` };
+      if (age > QUIET_AFTER) return { cls: "quiet", label: `Quiet ${span(age)}` };
+    }
+    if (s.status === "waiting" && !WAITS_ON_USER.test(s.waitingOn || "") && age > WAITING_QUIET_AFTER) {
+      return { cls: "quiet", label: `Still waiting after ${span(age)}` };
+    }
+    return null;
+  }
+
+  // ---- Needs ----------------------------------------------------------
+  const isSnoozed = (n, now) => ts(n.snoozedUntil) > now;
+  const answerState = (n) => (n.answer ? n.answerState || "answered" : null);
+  // Open items count toward "not finished"; actionable ones are what the count badges show.
+  const openNeeds = (data, slug) => rows(data, "needs").filter((n) => !n.done && (!slug || n.project === slug));
+  // Items still waiting on the user: open, not snoozed and not answered (whatever the answer's relay state).
+  const actionable = (data, slug, now) => openNeeds(data, slug).filter((n) => !isSnoozed(n, now) && !answerState(n));
+  // The groups of the "Needs you" panel, for one project or (slug null) all of them.
+  function needsGroups(data, slug, now) {
+    const items = rows(data, "needs").filter((n) => !slug || n.project === slug);
+    const byAge = (a, b) => (b.priority === "high") - (a.priority === "high") || ts(a.createdAt) - ts(b.createdAt);
+    const open = items.filter((n) => !n.done);
+    return {
+      act: open.filter((n) => !isSnoozed(n, now) && !n.answer).sort(byAge),
+      answered: open.filter((n) => !isSnoozed(n, now) && n.answer).sort((a, b) => ts(b.answer?.at) - ts(a.answer?.at)),
+      snoozed: open.filter((n) => isSnoozed(n, now)).sort((a, b) => ts(a.snoozedUntil) - ts(b.snoozedUntil)),
+      done: items.filter((n) => n.done && !isOld(needDoneAt(n), now)).sort((a, b) => ts(b.doneAt) - ts(a.doneAt)),
+    };
+  }
+
+  // ---- Progress -------------------------------------------------------
+  // Progress of a project's live work, from the steps agents already write.
+  // Each step weighs S=1, M=2 (default), L=4. Steps marked by: "you" and open "Needs you" items for
+  // live work are the user's share; an answered item counts as the user's part done.
+  const SIZE_WEIGHT = { S: 1, M: 2, L: 4 };
+  const LIVE = ["active", "waiting", "blocked"];
+  function progressFor(data, slug) {
+    const live = streamsFor(data, slug).filter((s) => LIVE.includes(s.status));
+    if (!live.length) return null;
+    const liveIds = new Set(live.map((s) => s.id));
+    let total = 0, done = 0, you = 0;
+    for (const s of live) {
+      for (const x of Array.isArray(s.steps) ? s.steps : []) {
+        if (!x || typeof x !== "object") continue;
+        const w = SIZE_WEIGHT[String(x.size || "").toUpperCase()] || SIZE_WEIGHT.M;
+        total += w;
+        if (x.state === "done") done += w;
+        else if (x.by === "you") you += w;
+      }
+    }
+    for (const n of rows(data, "needs")) {
+      const sid = n.stream ? String(n.stream).replace(/^streams\//, "") : null;
+      if (n.done || n.project !== slug || (sid && !liveIds.has(sid))) continue;
+      total += SIZE_WEIGHT.S;
+      if (answerState(n)) done += SIZE_WEIGHT.S;
+      else you += SIZE_WEIGHT.S;
+    }
+    if (!total) return null;
+    // Round the user's share up and the done share down, so "done" never reads as finished while
+    // the user still has something to do.
+    const youPct = you ? Math.max(1, Math.ceil((you / total) * 100)) : 0;
+    const donePct = Math.min(Math.floor((done / total) * 100), 100 - youPct);
+    return { donePct, youPct };
+  }
+  // Red (0%) through yellow to green (100%).
+  const progressColor = (pct) => `hsl(${Math.round(4 + pct * 1.3)} 72% 62%)`;
+
+  // ---- History --------------------------------------------------------
+  // Done items stay in the normal view for 7 days, then move to History. After 30 days the page
+  // squeezes them into one archive doc per project and month (archive/<slug>--<YYYY-MM>) and
+  // deletes the full card, so history stays browsable without filling the store.
+  const isOld = (iso, now, days = SHOW_DAYS) => ts(iso) > 0 && now - ts(iso) > days * DAY;
+  // Readable key plus a hash of the raw id, so ids that differ only in punctuation never collide.
+  const hash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36); };
+  const itemKey = (kind, id) => `${kind}_${String(id).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 150)}_${hash(String(id))}`;
+  // When a done item finished. Falls back so nothing is stuck in the "done" list forever.
+  const streamDoneAt = (s) => (ts(s.updatedAt) ? s.updatedAt : s.lastShipped?.at || null);
+  const needDoneAt = (n) => [n.doneAt, n.updatedAt, n.createdAt].find((x) => ts(x)) || null;
+  function streamEntry(s) {
+    const firstAt = (Array.isArray(s.recent) ? s.recent : []).map((r) => r && r.at).filter((a) => ts(a)).sort()[0] || null;
+    return {
+      kind: "stream", title: clip(s.title, 120) || "Workstream",
+      summary: clip(s.lastShipped?.text) || clip(s.currentTask),
+      url: safeUrl(s.lastShipped?.url) || safeUrl(s.pr?.url) || null,
+      pr: s.pr && (s.pr.number || s.pr.url) ? { number: s.pr.number ?? null, url: safeUrl(s.pr.url), state: clip(s.pr.state, 20) } : null,
+      agent: clip(s.agent, 60), startedAt: firstAt, finishedAt: streamDoneAt(s),
+    };
+  }
+  function needEntry(n) {
+    const a = n.answer || {};
+    return {
+      kind: "need", title: clip(n.title, 200) || "Untitled", needKind: clip(n.kind, 20),
+      summary: clip([a.choice, a.note].filter(Boolean).join(" · ")) || null,
+      url: safeUrl(n.link), doneBy: clip(n.doneBy, 20), startedAt: n.createdAt || null, finishedAt: needDoneAt(n),
+    };
+  }
+  // A project's History: done items older than 7 days that are still stored, plus archived ones.
+  function historyFor(data, slug, now) {
+    const out = [];
+    for (const s of rows(data, "streams")) if (s.project === slug && s.status === "done" && isOld(streamDoneAt(s), now)) out.push(streamEntry(s));
+    for (const n of rows(data, "needs")) if (n.project === slug && n.done && isOld(needDoneAt(n), now)) out.push(needEntry(n));
+    for (const doc of rows(data, "archive")) {
+      if (doc.project !== slug || !doc.items || typeof doc.items !== "object") continue;
+      for (const e of Object.values(doc.items)) if (e && typeof e === "object") out.push(e);
+    }
+    return out.sort((a, b) => ts(b.finishedAt) - ts(a.finishedAt));
+  }
+  // What to archive: done items over 30 days old, grouped per project and month (UTC). Each group
+  // is one archive doc (`archive/<id>`) and the full docs to delete once it is written.
+  function planArchive(data, now) {
+    const monthOf = (iso) => new Date(ts(iso)).toISOString().slice(0, 7);
+    const groups = new Map();
+    const add = (slug, iso, key, entry, path) => {
+      if (!slug || !/^[\w.-]+$/.test(slug)) return;
+      const id = `${slug}--${monthOf(iso)}`;
+      if (!groups.has(id)) groups.set(id, { id, slug, month: monthOf(iso), items: {}, paths: [] });
+      const g = groups.get(id); g.items[key] = entry; g.paths.push(path);
+    };
+    for (const s of rows(data, "streams")) {
+      if (s.status === "done" && isOld(streamDoneAt(s), now, ARCHIVE_DAYS)) add(s.project, streamDoneAt(s), itemKey("stream", s.id), streamEntry(s), `streams/${s.id}`);
+    }
+    for (const n of rows(data, "needs")) {
+      if (n.done && isOld(needDoneAt(n), now, ARCHIVE_DAYS)) add(n.project, needDoneAt(n), itemKey("need", n.id), needEntry(n), `needs/${n.id}`);
+    }
+    return [...groups.values()];
+  }
+
+  // ---- Plan usage -----------------------------------------------------
+  function readings(usage, key) {
+    return (Array.isArray(usage) ? usage : [])
+      .map((s) => ({ at: ts(s.at), pct: num(s[key]?.pct), resetsAt: ts(s[key]?.resetsAt) }))
+      .filter((r) => r.at && r.pct != null && r.resetsAt)
+      .sort((a, b) => a.at - b.at);
+  }
+  const sameWeek = (a, b) => Math.abs(a - b) < MINUTE;
+  // Linear interpolation of a week's readings at a given offset from its start.
+  function valueAt(week, weekStart, off) {
+    const pts = [{ o: 0, p: 0 }, ...week.map((r) => ({ o: r.at - weekStart, p: r.pct }))];
+    if (off <= 0) return 0;
+    for (let i = 1; i < pts.length; i++) {
+      if (pts[i].o >= off) {
+        const a = pts[i - 1], b = pts[i];
+        return a.p + ((b.p - a.p) * (off - a.o)) / Math.max(1, b.o - a.o);
+      }
+    }
+    return null; // beyond the last reading
+  }
+
+  function projectWeek(usage, key, now) {
+    const all = readings(usage, key);
+    if (!all.length) return null;
+    const latest = all[all.length - 1];
+    const start = latest.resetsAt - WEEK;
+    const week = all.filter((r) => sameWeek(r.resetsAt, latest.resetsAt));
+    const lastWeek = all.filter((r) => sameWeek(r.resetsAt, latest.resetsAt - WEEK));
+    const base = { pct: latest.pct, resetsAt: latest.resetsAt, at: latest.at, start, week, lastWeek, pace: Math.min(100, Math.max(0, ((now - start) / WEEK) * 100)) };
+    if (latest.resetsAt <= now) return { ...base, kind: "reset" };
+    const daysLeft = (latest.resetsAt - now) / DAY;
+    base.perDay = daysLeft > 0.05 ? Math.max(0, 100 - latest.pct) / daysLeft : null;
+    const elapsed = latest.at - start;
+
+    // 1) Last week's rhythm: scale the rest of last week's curve by how this week compares so far.
+    const lwStart = start - WEEK;
+    const lwLast = lastWeek[lastWeek.length - 1];
+    if (lastWeek.length >= 4 && lwLast && lwLast.at >= lwStart + WEEK - 12 * HOUR) {
+      const lNow = valueAt(lastWeek, lwStart, elapsed);
+      if (lNow != null && lNow >= 3 && latest.pct >= 2) {
+        const ratio = latest.pct / lNow;
+        const lEnd = lwLast.pct;
+        const projected = latest.pct + ratio * Math.max(0, lEnd - lNow);
+        let runOut = null;
+        if (projected > 100) {
+          for (let off = elapsed; off <= WEEK; off += HOUR) {
+            const v = valueAt(lastWeek, lwStart, off);
+            if (v != null && latest.pct + ratio * (v - lNow) >= 100) { runOut = start + off; break; }
+          }
+        }
+        return { ...base, kind: projected > 100 ? "bad" : projected > 90 ? "warn" : "ok", projected, runOut, basis: "last week's rhythm" };
+      }
+    }
+    if (elapsed < MIN_ELAPSED) return { ...base, kind: "early" };
+    // 2) Straight line from the trailing ~36h, else the week so far.
+    const from = [...week].reverse().find((r) => latest.at - r.at >= RATE_WINDOW);
+    const rate = from ? (latest.pct - from.pct) / (latest.at - from.at) : latest.pct / elapsed;
+    const projected = latest.pct + Math.max(0, rate) * (latest.resetsAt - latest.at);
+    const runOut = rate > 0 && projected > 100 ? latest.at + (100 - latest.pct) / rate : null;
+    return { ...base, kind: projected > 100 ? "bad" : projected > 90 ? "warn" : "ok", projected, runOut, basis: from ? "the last 36 hours" : "this week so far" };
+  }
+  // Readings old enough to delete.
+  const staleReadings = (usage, now) => (Array.isArray(usage) ? usage : []).filter((s) => ts(s.at) && ts(s.at) < now - USAGE_KEEP_DAYS * DAY);
+
+  // ---- Since you last looked ------------------------------------------
+  // Every stream's `recent` rows, newest first, tagged with their project and stream.
+  function allActivity(data, now) {
+    const items = [];
+    for (const p of orderedProjects(data, now)) {
+      for (const s of p.streams) {
+        for (const r of Array.isArray(s.recent) ? s.recent : []) {
+          if (ts(r.at)) items.push({ ...r, project: p.id, projectName: p.name, stream: s.title });
+        }
+      }
+    }
+    return items.sort((a, b) => ts(b.at) - ts(a.at));
+  }
+
+  // What happened since the viewer last looked (`since`, ms), from data already on the page.
+  function digestData(data, since, now) {
+    const projects = orderedProjects(data, now);
+    const streams = projects.flatMap((p) => p.streams.map((x) => ({ ...x, project: p.id, title: x.legacy ? p.name : x.title })));
+    const finished = streams.filter((x) => ts(x.lastShipped?.at) > since || (x.status === "done" && ts(streamDoneAt(x)) > since))
+      .map((x) => ({
+        project: x.project, title: x.title || "Workstream", done: x.status === "done",
+        text: x.lastShipped?.text || x.currentTask || "", url: safeUrl(x.lastShipped?.url) || safeUrl(x.pr?.url),
+        at: ts(x.lastShipped?.at) > since ? x.lastShipped.at : streamDoneAt(x),
+      }))
+      .sort((m, n) => ts(n.at) - ts(m.at));
+    // An agent usually also logs a ship in `recent`; don't show the same event twice.
+    const shippedKeys = new Set(finished.flatMap((f) => [f.url && `u:${f.url}`, f.text && `t:${f.project}:${f.text}`]).filter(Boolean));
+    const updates = allActivity(data, now).filter((r) => ts(r.at) > since && !shippedKeys.has(`u:${safeUrl(r.url)}`) && !shippedKeys.has(`t:${r.project}:${r.text}`));
+    const byProject = new Map();
+    for (const r of updates) {
+      if (!byProject.has(r.project)) byProject.set(r.project, []);
+      byProject.get(r.project).push(r);
+    }
+    // A chat counts as "gone quiet" here only if it went quiet after the viewer last looked.
+    const quietFrom = (x) => ts(x.updatedAt) + (x.status === "waiting" ? WAITING_QUIET_AFTER : QUIET_AFTER);
+    const needs = rows(data, "needs");
+    return {
+      updates, byProject, finished,
+      newNeeds: needs.filter((n) => !n.done && !n.answer && ts(n.createdAt) > since).sort((m, n) => ts(n.createdAt) - ts(m.createdAt)),
+      closed: needs.filter((n) => n.done && n.doneBy && n.doneBy !== "you" && ts(n.doneAt) > since).sort((m, n) => ts(n.doneAt) - ts(m.doneAt)),
+      quiet: streams.map((x) => ({ x, q: quietness(x, now) })).filter((r) => r.q && quietFrom(r.x) > since),
+    };
+  }
+
+  return {
+    // tuning
+    MINUTE, HOUR, DAY, WEEK, TICK, QUIET_AFTER, STOPPED_AFTER, WAITING_QUIET_AFTER, DIGEST_MIN_AGE, FEED_PAGE,
+    SHOW_DAYS, ARCHIVE_DAYS, ARCHIVE_LEASE_MS, USAGE_KEEP_DAYS, RATE_WINDOW, MIN_ELAPSED,
+    STATES, STATE_LABEL, SIZE_WEIGHT,
+    // basics
+    st, safeUrl, appUrl, ts, num, clip, ago, span,
+    // projects and streams
+    streamsFor, allProjectSlugs, projectInfo, orderedProjects, quietness,
+    // needs and progress
+    isSnoozed, answerState, openNeeds, actionable, needsGroups, progressFor, progressColor,
+    // history and archiving
+    isOld, hash, itemKey, streamDoneAt, needDoneAt, streamEntry, needEntry, historyFor, planArchive,
+    // plan usage
+    readings, valueAt, projectWeek, staleReadings,
+    // digest
+    allActivity, digestData,
+  };
+})();
+</script>
+
+<script>
+// ---- UI: DOM, live data and local storage ----
+// Renders the board from the live `db` capability, using the pure functions of RelayCore above.
+(() => {
+  const {
+    MINUTE, HOUR, DAY, WEEK, TICK, DIGEST_MIN_AGE, FEED_PAGE, SHOW_DAYS, ARCHIVE_LEASE_MS, STATE_LABEL,
+    st, safeUrl, appUrl, ts, num, ago, span,
+    orderedProjects, quietness, isSnoozed, answerState, actionable, needsGroups, progressFor, progressColor,
+    isOld, streamDoneAt, historyFor, planArchive, projectWeek, staleReadings, allActivity, digestData,
+  } = globalThis.RelayCore;
   const state = {
     projects: [], streams: [], needs: [], usage: [], archive: [], fresh: {},
     tab: "overview", db: null, ready: false,
@@ -595,11 +946,7 @@
     for (const kid of kids.flat()) if (kid != null && kid !== false) n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
     return n;
   };
-  const st = (s) => (STATES.includes(s) ? s : "idle");
-  const safeUrl = (u) => (typeof u === "string" && /^https?:\/\//i.test(u) ? u : null);
-  const appUrl = (u) => (typeof u === "string" && /^claude:\/\//i.test(u) ? u : null);
   const link = (label, url) => (safeUrl(url) ? el("a", { href: url, target: "_blank", rel: "noopener" }, label) : el("span", {}, label));
-  const ts = (iso) => Date.parse(iso) || 0;
   const nowIso = () => new Date().toISOString();
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -638,23 +985,7 @@
     return { h, open };
   }
 
-  function ago(iso) {
-    const t = ts(iso);
-    if (!t) return "";
-    const s = Math.max(0, (Date.now() - t) / 1000);
-    if (s < 60) return "just now";
-    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-    return `${Math.floor(s / 86400)}d ago`;
-  }
-  function span(ms) {
-    const m = Math.floor(ms / MINUTE);
-    if (m < 60) return `${m}m`;
-    const h = Math.floor(m / 60);
-    if (h < 48) return `${h}h`;
-    return `${Math.floor(h / 24)}d`;
-  }
-  const timeEl = (iso) => el("time", { datetime: iso || "", class: "mono", title: iso ? new Date(iso).toLocaleString() : "" }, ago(iso));
+  const timeEl = (iso) => el("time", { datetime: iso || "", class: "mono", title: iso ? new Date(iso).toLocaleString() : "" }, ago(iso, Date.now()));
   const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   const whenLabel = (ms) => {
     const d = new Date(ms);
@@ -681,103 +1012,7 @@
     }
   }
 
-  // ---- Model ----------------------------------------------------------
-  // A project is a meta doc (projects/<slug>) plus one workstream per chat (streams/<slug>--<topic>).
-  // Older agents still write status fields onto the project doc; show those as a "Main" stream.
-  function streamsFor(slug) {
-    const p = state.projects.find((x) => x.id === slug) || {};
-    const list = state.streams.filter((s) => s.project === slug);
-    if (p.status) {
-      list.push({
-        id: `${slug}--legacy`, project: slug, title: "Main", legacy: true,
-        agent: p.agent, status: p.status, currentTask: p.currentTask, waitingOn: p.waitingOn,
-        steps: p.steps, blockers: p.blockers, links: p.links, recent: p.recent, updatedAt: p.updatedAt,
-      });
-    }
-    return list.sort((a, b) => rankStream(a) - rankStream(b) || ts(b.updatedAt) - ts(a.updatedAt));
-  }
-  const STATUS_RANK = { blocked: 0, active: 1, waiting: 2, todo: 3, idle: 4, done: 5 };
-  const rankStream = (s) => STATUS_RANK[st(s.status)] ?? 4;
-  function allProjectSlugs() {
-    const slugs = new Set(state.projects.map((p) => p.id));
-    for (const s of state.streams) if (s.project) slugs.add(s.project);
-    return [...slugs];
-  }
-  function projectInfo(slug) {
-    const meta = state.projects.find((p) => p.id === slug) || { id: slug, name: slug };
-    const streams = streamsFor(slug);
-    const live = streams.filter((s) => s.status !== "done");
-    const status = streams.length ? st([...streams].sort((a, b) => rankStream(a) - rankStream(b))[0].status) : "idle";
-    const updatedAt = [...streams.map((s) => s.updatedAt), meta.updatedAt].filter(Boolean).sort().pop();
-    const busy = live.some((s) => st(s.status) !== "idle");
-    // Finished for now: something got done, nothing is in progress and nothing waits on the user.
-    // Idle streams (parked ideas, backlogs) don't count as unfinished work.
-    const didWork = streams.some((s) => s.status === "done") || state.archive.some((a) => a.project === slug);
-    const complete = !busy && didWork && !state.needs.some((n) => !n.done && n.project === slug);
-    const idleWeek = !busy && Date.now() - ts(updatedAt) > WEEK;
-    return { ...meta, id: slug, name: meta.name || slug, streams, liveStreams: live, status: complete ? "done" : status, updatedAt, complete, dim: idleWeek && !complete };
-  }
-  function orderedProjects() {
-    return allProjectSlugs().map(projectInfo).sort((a, b) =>
-      (b.pinned === true) - (a.pinned === true) || a.dim - b.dim || (a.order ?? 99) - (b.order ?? 99) || ts(b.updatedAt) - ts(a.updatedAt));
-  }
-
-  // Quiet detection: a chat that says it's working but hasn't written for a while has likely stopped.
-  const WAITS_ON_USER = /\b(you|your|user|approval|approve|decide|decision|merge)\b/i;
-  function quietness(s) {
-    if (!ts(s.updatedAt)) return null;
-    const age = Date.now() - ts(s.updatedAt);
-    if (s.status === "active") {
-      if (age > STOPPED_AFTER) return { cls: "stopped", label: `Silent ${span(age)} · may have stopped` };
-      if (age > QUIET_AFTER) return { cls: "quiet", label: `Quiet ${span(age)}` };
-    }
-    if (s.status === "waiting" && !WAITS_ON_USER.test(s.waitingOn || "") && age > WAITING_QUIET_AFTER) {
-      return { cls: "quiet", label: `Still waiting after ${span(age)}` };
-    }
-    return null;
-  }
-
-  // Progress of a project's live work, from the steps agents already write.
-  // Each step weighs S=1, M=2 (default), L=4. Steps marked by: "you" and open "Needs you" items for
-  // live work are the user's share; an answered item counts as the user's part done.
-  const SIZE_WEIGHT = { S: 1, M: 2, L: 4 };
-  const LIVE = ["active", "waiting", "blocked"];
-  function progressFor(slug) {
-    const live = streamsFor(slug).filter((s) => LIVE.includes(s.status));
-    if (!live.length) return null;
-    const liveIds = new Set(live.map((s) => s.id));
-    let total = 0, done = 0, you = 0;
-    for (const s of live) {
-      for (const x of Array.isArray(s.steps) ? s.steps : []) {
-        if (!x || typeof x !== "object") continue;
-        const w = SIZE_WEIGHT[String(x.size || "").toUpperCase()] || SIZE_WEIGHT.M;
-        total += w;
-        if (x.state === "done") done += w;
-        else if (x.by === "you") you += w;
-      }
-    }
-    for (const n of state.needs) {
-      const sid = n.stream ? String(n.stream).replace(/^streams\//, "") : null;
-      if (n.done || n.project !== slug || (sid && !liveIds.has(sid))) continue;
-      total += SIZE_WEIGHT.S;
-      if (answerState(n)) done += SIZE_WEIGHT.S;
-      else you += SIZE_WEIGHT.S;
-    }
-    if (!total) return null;
-    // Round the user's share up and the done share down, so "done" never reads as finished while
-    // the user still has something to do.
-    const youPct = you ? Math.max(1, Math.ceil((you / total) * 100)) : 0;
-    const donePct = Math.min(Math.floor((done / total) * 100), 100 - youPct);
-    return { donePct, youPct };
-  }
-  // Red (0%) through yellow to green (100%).
-  const progressColor = (pct) => `hsl(${Math.round(4 + pct * 1.3)} 72% 62%)`;
-
   // ---- Needs ----------------------------------------------------------
-  const isSnoozed = (n) => ts(n.snoozedUntil) > Date.now();
-  const answerState = (n) => (n.answer ? n.answerState || "answered" : null);
-  const openNeeds = (slug) => state.needs.filter((n) => !n.done && (!slug || n.project === slug));
-  const actionable = (slug) => openNeeds(slug).filter((n) => !isSnoozed(n) && !["answered", "relayed"].includes(answerState(n)));
   const projectName = (slug) => state.projects.find((p) => p.id === slug)?.name || slug;
   const projectChip = (slug) => (!slug ? null : el("button", {
     type: "button", class: "chip project", onclick: (e) => { e.stopPropagation(); setTab(slug); },
@@ -845,7 +1080,7 @@
   function answeredLine(n) {
     const a = n.answer || {};
     const s = answerState(n);
-    const status = s === "handled" ? "Chat handled it" : s === "relayed" ? `Sent to the chat ${ago(n.relayedAt)}` : "Waiting for a chat to pick it up";
+    const status = s === "handled" ? "Chat handled it" : s === "relayed" ? `Sent to the chat ${ago(n.relayedAt, Date.now())}` : "Waiting for a chat to pick it up";
     return el("div", { class: "answered" },
       el("span", { class: "you" }, "You answered"),
       a.choice ? el("strong", {}, a.choice) : null,
@@ -864,14 +1099,14 @@
       n.priority === "high" ? el("span", { class: "chip high" }, "High") : null,
       n.done && n.doneBy && n.doneBy !== "you" ? el("span", { class: "chip byclaude" }, "Done by Claude") : null,
       ts(n.createdAt) && !n.done ? el("span", { class: "chip age", title: new Date(ts(n.createdAt)).toLocaleString() }, `waiting ${span(age)}`) : null,
-      isSnoozed(n) ? el("span", { class: "chip age" }, `snoozed until ${whenLabel(ts(n.snoozedUntil))}`) : null,
+      isSnoozed(n, Date.now()) ? el("span", { class: "chip age" }, `snoozed until ${whenLabel(ts(n.snoozedUntil))}`) : null,
       n.link ? link("Open", n.link) : null));
     if (n.why) li.append(el("div", { class: "need-why" }, n.why));
     if (Array.isArray(n.steps) && n.steps.length) li.append(el("ol", { class: "need-steps" }, n.steps.map((s) => el("li", {}, s))));
     if (n.done) {
       if (n.answer) li.append(answeredLine(n));
       li.append(el("div", { class: "btn-row" }, el("button", { type: "button", class: "btn ghost", onclick: () => reopenNeed(n) }, "Reopen")));
-    } else if (isSnoozed(n)) {
+    } else if (isSnoozed(n, Date.now())) {
       li.append(el("div", { class: "btn-row" }, el("button", { type: "button", class: "btn ghost", onclick: () => snooze(n, null) }, "Unsnooze")));
     } else if (n.answer) {
       li.append(answeredLine(n));
@@ -892,13 +1127,7 @@
   }
 
   function needsPanel(slug) {
-    const items = state.needs.filter((n) => !slug || n.project === slug);
-    const byAge = (a, b) => (b.priority === "high") - (a.priority === "high") || ts(a.createdAt) - ts(b.createdAt);
-    const open = items.filter((n) => !n.done);
-    const act = open.filter((n) => !isSnoozed(n) && !n.answer).sort(byAge);
-    const answered = open.filter((n) => !isSnoozed(n) && n.answer).sort((a, b) => ts(b.answer?.at) - ts(a.answer?.at));
-    const snoozed = open.filter(isSnoozed).sort((a, b) => ts(a.snoozedUntil) - ts(b.snoozedUntil));
-    const done = items.filter((n) => n.done && !isOld(needDoneAt(n))).sort((a, b) => ts(b.doneAt) - ts(a.doneAt));
+    const { act, answered, snoozed, done } = needsGroups(state, slug, Date.now());
     const sec = el("section", { "aria-labelledby": `needs-h-${slug || "all"}` });
     const head = sectionHead(`sec:needs:${slug || "all"}`, `needs-h-${slug || "all"}`, "Needs you", `${act.length} open`);
     sec.append(head.h);
@@ -934,56 +1163,17 @@
     else if (Date.now() - visibleSince > MINUTE) { lastSeen = Date.now(); store.set(SEEN_KEY, String(lastSeen)); }
   });
 
-  function allActivity() {
-    const items = [];
-    for (const p of orderedProjects()) {
-      for (const s of p.streams) {
-        for (const r of Array.isArray(s.recent) ? s.recent : []) {
-          if (ts(r.at)) items.push({ ...r, project: p.id, projectName: p.name, stream: s.title });
-        }
-      }
-    }
-    return items.sort((a, b) => ts(b.at) - ts(a.at));
-  }
-
-  // What happened since the viewer last looked, from data already on the page. Folded by default;
-  // every fact says what it is, and the pane lists the actual items with links.
-  function digestData(since) {
-    const projects = orderedProjects();
-    const streams = projects.flatMap((p) => p.streams.map((x) => ({ ...x, project: p.id, title: x.legacy ? p.name : x.title })));
-    const finished = streams.filter((x) => ts(x.lastShipped?.at) > since || (x.status === "done" && ts(streamDoneAt(x)) > since))
-      .map((x) => ({
-        project: x.project, title: x.title || "Workstream", done: x.status === "done",
-        text: x.lastShipped?.text || x.currentTask || "", url: safeUrl(x.lastShipped?.url) || safeUrl(x.pr?.url),
-        at: ts(x.lastShipped?.at) > since ? x.lastShipped.at : streamDoneAt(x),
-      }))
-      .sort((m, n) => ts(n.at) - ts(m.at));
-    // An agent usually also logs a ship in `recent`; don't show the same event twice.
-    const shippedKeys = new Set(finished.flatMap((f) => [f.url && `u:${f.url}`, f.text && `t:${f.project}:${f.text}`]).filter(Boolean));
-    const updates = allActivity().filter((r) => ts(r.at) > since && !shippedKeys.has(`u:${safeUrl(r.url)}`) && !shippedKeys.has(`t:${r.project}:${r.text}`));
-    const byProject = new Map();
-    for (const r of updates) {
-      if (!byProject.has(r.project)) byProject.set(r.project, []);
-      byProject.get(r.project).push(r);
-    }
-    // A chat counts as "gone quiet" here only if it went quiet after the viewer last looked.
-    const quietFrom = (x) => ts(x.updatedAt) + (x.status === "waiting" ? WAITING_QUIET_AFTER : QUIET_AFTER);
-    return {
-      updates, byProject, finished,
-      newNeeds: state.needs.filter((n) => !n.done && !n.answer && ts(n.createdAt) > since).sort((m, n) => ts(n.createdAt) - ts(m.createdAt)),
-      closed: state.needs.filter((n) => n.done && n.doneBy && n.doneBy !== "you" && ts(n.doneAt) > since).sort((m, n) => ts(n.doneAt) - ts(m.doneAt)),
-      quiet: streams.map((x) => ({ x, q: quietness(x) })).filter((r) => r.q && quietFrom(r.x) > since),
-    };
-  }
   const listNames = (slugs) => {
     const names = slugs.map(projectName);
     return names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
   };
 
+  // The "Since you last looked" strip, from digestData(). Folded by default; every fact says what
+  // it is, and the pane lists the actual items with links.
   function digest() {
     const since = lastSeen;
     if (Date.now() - since < DIGEST_MIN_AGE) return null;
-    const d = digestData(since);
+    const d = digestData(state, since, Date.now());
     const nUpd = d.updates.length;
     if (!nUpd && !d.newNeeds.length && !d.finished.length && !d.closed.length && !d.quiet.length) return null;
     const key = "sec:digest";
@@ -1039,7 +1229,7 @@
     return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
   }
   function activityPanel() {
-    const all = allActivity();
+    const all = allActivity(state, Date.now());
     if (!all.length) return null;
     const sec = el("section", { "aria-labelledby": "act-h" });
     const head = sectionHead("sec:activity", "act-h", "Activity", null);
@@ -1098,11 +1288,11 @@
   }
   function projectCard(p) {
     const s = st(p.status);
-    const shown = (p.liveStreams.length ? p.liveStreams : p.streams.filter((x) => x.legacy || !isOld(streamDoneAt(x)))).slice(0, 3);
-    const quiet = p.streams.map(quietness).filter(Boolean);
+    const shown = (p.liveStreams.length ? p.liveStreams : p.streams.filter((x) => x.legacy || !isOld(streamDoneAt(x), Date.now()))).slice(0, 3);
+    const quiet = p.streams.map((x) => quietness(x, Date.now())).filter(Boolean);
     const shipped = p.streams.map((x) => x.lastShipped).filter((x) => x && ts(x.at)).sort((a, b) => ts(b.at) - ts(a.at))[0];
     const prs = p.streams.map((x) => x.pr).filter((x) => x && x.state !== "closed").slice(0, 3);
-    const needCount = actionable(p.id).length;
+    const needCount = actionable(state, p.id, Date.now()).length;
     return el("article", { class: `card s-${s}${p.dim ? " dim" : ""}${p.complete ? " foil" : ""}` },
       el("div", { class: "card-head" },
         el("h3", {}, el("button", { type: "button", onclick: () => setTab(p.id) }, p.name)),
@@ -1122,7 +1312,7 @@
     const d = digest();
     if (d) frag.append(d);
     frag.append(needsPanel(null));
-    const projects = orderedProjects();
+    const projects = orderedProjects(state, Date.now());
     const sec = el("section", { "aria-labelledby": "proj-h" });
     const head = sectionHead("sec:projects", "proj-h", "Projects", `${projects.length}`);
     sec.append(head.h);
@@ -1139,7 +1329,7 @@
   // ---- Project view ---------------------------------------------------
   function streamPanel(s) {
     const ss = st(s.status);
-    const q = quietness(s);
+    const q = quietness(s, Date.now());
     const steps = Array.isArray(s.steps) ? s.steps : [];
     const done = steps.filter((x) => x.state === "done").length;
     const session = s.session || {};
@@ -1198,7 +1388,7 @@
         el("span", { class: `chip state s-${s}` }, el("span", { class: "dot state" }), STATE_LABEL[s]))));
     frag.append(needsPanel(p.id));
     const live = p.streams.filter((x) => x.status !== "done");
-    const finished = p.streams.filter((x) => x.status === "done" && (x.legacy || !isOld(streamDoneAt(x))));
+    const finished = p.streams.filter((x) => x.status === "done" && (x.legacy || !isOld(streamDoneAt(x), Date.now())));
     const sec = el("section", { class: "workstreams", "aria-labelledby": `ws-h-${p.id}` });
     const head = sectionHead(`sec:workstreams:${p.id}`, `ws-h-${p.id}`, "Workstreams", `${live.length} open`);
     sec.append(head.h);
@@ -1220,47 +1410,9 @@
   }
 
   // ---- History --------------------------------------------------------
-  // Done items stay in the normal view for 7 days, then move to History. After 30 days the page
-  // squeezes them into one archive doc per project and month (archive/<slug>--<YYYY-MM>) and
-  // deletes the full card, so history stays browsable without filling the store.
-  const isOld = (iso, days = SHOW_DAYS) => ts(iso) > 0 && Date.now() - ts(iso) > days * DAY;
-  const clip = (v, n = 300) => (typeof v === "string" ? v.slice(0, n) : null);
-  // Readable key plus a hash of the raw id, so ids that differ only in punctuation never collide.
-  const hash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36); };
-  const itemKey = (kind, id) => `${kind}_${String(id).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 150)}_${hash(String(id))}`;
-  // When a done item finished. Falls back so nothing is stuck in the "done" list forever.
-  const streamDoneAt = (s) => (ts(s.updatedAt) ? s.updatedAt : s.lastShipped?.at || null);
-  const needDoneAt = (n) => [n.doneAt, n.updatedAt, n.createdAt].find((x) => ts(x)) || null;
-  function streamEntry(s) {
-    const firstAt = (Array.isArray(s.recent) ? s.recent : []).map((r) => r && r.at).filter((a) => ts(a)).sort()[0] || null;
-    return {
-      kind: "stream", title: clip(s.title, 120) || "Workstream",
-      summary: clip(s.lastShipped?.text) || clip(s.currentTask),
-      url: safeUrl(s.lastShipped?.url) || safeUrl(s.pr?.url) || null,
-      pr: s.pr && (s.pr.number || s.pr.url) ? { number: s.pr.number ?? null, url: safeUrl(s.pr.url), state: clip(s.pr.state, 20) } : null,
-      agent: clip(s.agent, 60), startedAt: firstAt, finishedAt: streamDoneAt(s),
-    };
-  }
-  function needEntry(n) {
-    const a = n.answer || {};
-    return {
-      kind: "need", title: clip(n.title, 200) || "Untitled", needKind: clip(n.kind, 20),
-      summary: clip([a.choice, a.note].filter(Boolean).join(" · ")) || null,
-      url: safeUrl(n.link), doneBy: clip(n.doneBy, 20), startedAt: n.createdAt || null, finishedAt: needDoneAt(n),
-    };
-  }
-  function historyFor(slug) {
-    const rows = [];
-    for (const s of state.streams) if (s.project === slug && s.status === "done" && isOld(streamDoneAt(s))) rows.push(streamEntry(s));
-    for (const n of state.needs) if (n.project === slug && n.done && isOld(needDoneAt(n))) rows.push(needEntry(n));
-    for (const doc of state.archive) {
-      if (doc.project !== slug || !doc.items || typeof doc.items !== "object") continue;
-      for (const e of Object.values(doc.items)) if (e && typeof e === "object") rows.push(e);
-    }
-    return rows.sort((a, b) => ts(b.finishedAt) - ts(a.finishedAt));
-  }
+  // What moves to History and what gets archived is decided in the core (historyFor, planArchive).
   function historyPanel(p) {
-    const rows = historyFor(p.id);
+    const rows = historyFor(state, p.id, Date.now());
     if (!rows.length) return null;
     const sec = el("section", { "aria-labelledby": `hist-h-${p.id}` });
     const head = sectionHead(`history-${p.id}`, `hist-h-${p.id}`, "History", `${rows.length}`, false);
@@ -1292,29 +1444,16 @@
   let archiving = false;
   async function archiveOld() {
     if (archiving || !state.db || !["streams", "needs", "archive"].every((c) => state.fresh[c])) return;
-    const monthOf = (iso) => new Date(ts(iso)).toISOString().slice(0, 7);
-    const groups = new Map();
-    const add = (slug, iso, key, entry, path) => {
-      if (!slug || !/^[\w.-]+$/.test(slug)) return;
-      const id = `${slug}--${monthOf(iso)}`;
-      if (!groups.has(id)) groups.set(id, { slug, month: monthOf(iso), items: {}, paths: [] });
-      const g = groups.get(id); g.items[key] = entry; g.paths.push(path);
-    };
-    for (const s of state.streams) {
-      if (s.status === "done" && isOld(streamDoneAt(s), ARCHIVE_DAYS)) add(s.project, streamDoneAt(s), itemKey("stream", s.id), streamEntry(s), `streams/${s.id}`);
-    }
-    for (const n of state.needs) {
-      if (n.done && isOld(needDoneAt(n), ARCHIVE_DAYS)) add(n.project, needDoneAt(n), itemKey("need", n.id), needEntry(n), `needs/${n.id}`);
-    }
+    const groups = planArchive(state, Date.now());
     archiving = true; // set even when there's nothing to do: one pass per page load is enough
-    if (!groups.size) return;
+    if (!groups.length) return;
     try {
       const lock = state.db.doc("archive/_lock");
       const holder = `tab-${Math.random().toString(36).slice(2)}`;
-      for (const [id, g] of groups) {
+      for (const g of groups) {
         // Take (or renew) the lease before each month, so a slow run never overlaps another tab.
         if (!(await lock.acquire({ holder, ttlMs: ARCHIVE_LEASE_MS })).acquired) return;
-        const ref = state.db.doc(`archive/${id}`);
+        const ref = state.db.doc(`archive/${g.id}`);
         const snap = await ref.get();
         if (snap.exists) await ref.update({ items: g.items, updatedAt: nowIso() });
         else await ref.set({ project: g.slug, month: g.month, items: g.items, updatedAt: nowIso() });
@@ -1325,71 +1464,8 @@
   }
 
   // ---- Plan usage -----------------------------------------------------
-  const num = (v) => (typeof v === "number" && isFinite(v) ? v : null);
-  function readings(key) {
-    return state.usage
-      .map((s) => ({ at: ts(s.at), pct: num(s[key]?.pct), resetsAt: ts(s[key]?.resetsAt) }))
-      .filter((r) => r.at && r.pct != null && r.resetsAt)
-      .sort((a, b) => a.at - b.at);
-  }
-  const sameWeek = (a, b) => Math.abs(a - b) < MINUTE;
-  // Linear interpolation of a week's readings at a given offset from its start.
-  function valueAt(week, weekStart, off) {
-    const pts = [{ o: 0, p: 0 }, ...week.map((r) => ({ o: r.at - weekStart, p: r.pct }))];
-    if (off <= 0) return 0;
-    for (let i = 1; i < pts.length; i++) {
-      if (pts[i].o >= off) {
-        const a = pts[i - 1], b = pts[i];
-        return a.p + ((b.p - a.p) * (off - a.o)) / Math.max(1, b.o - a.o);
-      }
-    }
-    return null; // beyond the last reading
-  }
-
-  function projectWeek(key) {
-    const all = readings(key);
-    if (!all.length) return null;
-    const latest = all[all.length - 1];
-    const now = Date.now();
-    const start = latest.resetsAt - WEEK;
-    const week = all.filter((r) => sameWeek(r.resetsAt, latest.resetsAt));
-    const lastWeek = all.filter((r) => sameWeek(r.resetsAt, latest.resetsAt - WEEK));
-    const base = { pct: latest.pct, resetsAt: latest.resetsAt, at: latest.at, start, week, lastWeek, pace: Math.min(100, Math.max(0, ((now - start) / WEEK) * 100)) };
-    if (latest.resetsAt <= now) return { ...base, kind: "reset" };
-    const daysLeft = (latest.resetsAt - now) / DAY;
-    base.perDay = daysLeft > 0.05 ? Math.max(0, 100 - latest.pct) / daysLeft : null;
-    const elapsed = latest.at - start;
-
-    // 1) Last week's rhythm: scale the rest of last week's curve by how this week compares so far.
-    const lwStart = start - WEEK;
-    const lwLast = lastWeek[lastWeek.length - 1];
-    if (lastWeek.length >= 4 && lwLast && lwLast.at >= lwStart + WEEK - 12 * HOUR) {
-      const lNow = valueAt(lastWeek, lwStart, elapsed);
-      if (lNow != null && lNow >= 3 && latest.pct >= 2) {
-        const ratio = latest.pct / lNow;
-        const lEnd = lwLast.pct;
-        const projected = latest.pct + ratio * Math.max(0, lEnd - lNow);
-        let runOut = null;
-        if (projected > 100) {
-          for (let off = elapsed; off <= WEEK; off += HOUR) {
-            const v = valueAt(lastWeek, lwStart, off);
-            if (v != null && latest.pct + ratio * (v - lNow) >= 100) { runOut = start + off; break; }
-          }
-        }
-        return { ...base, kind: projected > 100 ? "bad" : projected > 90 ? "warn" : "ok", projected, runOut, basis: "last week's rhythm" };
-      }
-    }
-    if (elapsed < MIN_ELAPSED) return { ...base, kind: "early" };
-    // 2) Straight line from the trailing ~36h, else the week so far.
-    const from = [...week].reverse().find((r) => latest.at - r.at >= RATE_WINDOW);
-    const rate = from ? (latest.pct - from.pct) / (latest.at - from.at) : latest.pct / elapsed;
-    const projected = latest.pct + Math.max(0, rate) * (latest.resetsAt - latest.at);
-    const runOut = rate > 0 && projected > 100 ? latest.at + (100 - latest.pct) / rate : null;
-    return { ...base, kind: projected > 100 ? "bad" : projected > 90 ? "warn" : "ok", projected, runOut, basis: from ? "the last 36 hours" : "this week so far" };
-  }
-
   function weekMeter(label, key) {
-    const p = projectWeek(key);
+    const p = projectWeek(state.usage, key, Date.now());
     if (!p) return null;
     const cls = { ok: "u-ok", warn: "u-warn", bad: "u-bad", early: "u-early", reset: "u-early" }[p.kind];
     const used = Math.min(100, p.pct);
@@ -1412,7 +1488,7 @@
 
   // Small week chart: this week, last week (faint), even pace, and the projection.
   function weekChart(label, key) {
-    const p = projectWeek(key);
+    const p = projectWeek(state.usage, key, Date.now());
     if (!p) return null;
     const W = 600, H = 132, L = 30, R = 8, T = 8, B = 20;
     const x = (off) => L + (Math.min(WEEK, Math.max(0, off)) / WEEK) * (W - L - R);
@@ -1489,9 +1565,8 @@
   async function pruneUsage() {
     if (pruned || !state.db) return;
     pruned = true;
-    const cutoff = Date.now() - USAGE_KEEP_DAYS * DAY;
-    for (const s of state.usage) {
-      if (ts(s.at) && ts(s.at) < cutoff) { try { await state.db.doc(`usage/${s.id}`).delete(); } catch { return; } }
+    for (const s of staleReadings(state.usage, Date.now())) {
+      try { await state.db.doc(`usage/${s.id}`).delete(); } catch { return; }
     }
   }
 
@@ -1515,13 +1590,13 @@
     nav.replaceChildren();
     const mk = (id, label, extra) => el("button", { type: "button", role: "tab", "aria-selected": String(state.tab === id), onclick: () => setTab(id) }, extra, label);
     const b = mk("overview", "Overview", null);
-    const allOpen = actionable().length;
+    const allOpen = actionable(state, null, Date.now()).length;
     if (allOpen) b.append(el("span", { class: "count", title: "Open items that need you" }, allOpen));
     nav.append(b);
     for (const p of projects) {
       const t = mk(p.id, p.name, el("span", { class: `dot state s-${st(p.status)}` }));
       if (p.complete) { t.classList.add("foil"); t.title = "All done for now"; }
-      const n = actionable(p.id).length;
+      const n = actionable(state, p.id, Date.now()).length;
       if (n) t.append(el("span", { class: "count" }, n));
       nav.append(t);
     }
@@ -1529,7 +1604,7 @@
 
   function renderProgress(p) {
     const box = $("progress");
-    const pr = !p ? null : p.complete ? { donePct: 100, youPct: 0 } : progressFor(p.id);
+    const pr = !p ? null : p.complete ? { donePct: 100, youPct: 0 } : progressFor(state, p.id);
     box.hidden = !pr;
     box.classList.toggle("foil", !!p?.complete);
     if (!pr) { box.replaceChildren(); return; }
@@ -1551,7 +1626,7 @@
   }
 
   function render() {
-    const projects = orderedProjects();
+    const projects = orderedProjects(state, Date.now());
     if (state.tab !== "overview" && !projects.some((p) => p.id === state.tab) && projects.length) state.tab = "overview";
     renderTabs(projects);
     renderUsage();
@@ -1580,7 +1655,7 @@
       if (f.tagName === "TEXTAREA") f.setSelectionRange(f.value.length, f.value.length);
     }
     const latest = [...projects.map((x) => x.updatedAt), ...state.needs.map((x) => x.updatedAt || x.createdAt)].filter(Boolean).sort().pop();
-    $("sub").textContent = state.db ? (latest ? `Last update ${ago(latest)}` : "Live") : "Connecting…";
+    $("sub").textContent = state.db ? (latest ? `Last update ${ago(latest, Date.now())}` : "Live") : "Connecting…";
   }
 
   // Avoid re-rendering under the cursor while someone is typing an answer.
