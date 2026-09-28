@@ -99,6 +99,26 @@
   .progress .p-bar .f-done { left: 0; background: var(--pc); }
   .progress .p-bar .f-you { right: 0; background: var(--you); }
   @media (max-width: 560px) { .progress .p-bar { display: none; } }
+  .progress .p-you.zero { color: var(--ok); font-weight: 500; }
+  .progress.foil { padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(111, 207, 151, 0.45); background: var(--ok-soft); }
+
+  /* "Foil card" shimmer for projects that are finished for now */
+  .foil { position: relative; isolation: isolate; overflow: hidden; }
+  .foil::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 1;
+    background:
+      linear-gradient(115deg, transparent 18%, rgba(255, 94, 196, 0.22) 30%, rgba(94, 214, 255, 0.22) 40%,
+        rgba(140, 255, 160, 0.22) 50%, rgba(255, 232, 110, 0.22) 60%, rgba(186, 132, 255, 0.22) 70%, transparent 82%),
+      repeating-linear-gradient(55deg, rgba(255, 255, 255, 0.035) 0 2px, transparent 2px 7px);
+    background-size: 300% 300%, auto;
+    mix-blend-mode: screen;
+    animation: foil-sweep 7s ease-in-out infinite;
+  }
+  .card.foil { border-color: rgba(111, 207, 151, 0.45); box-shadow: 0 0 0 1px rgba(111, 207, 151, 0.12), 0 8px 28px -14px rgba(111, 207, 151, 0.45); }
+  .card.foil > * { position: relative; z-index: 2; }
+  .all-done { font-size: var(--fs-sm); font-weight: 600; color: var(--ok); }
+  @keyframes foil-sweep { 0%, 100% { background-position: 100% 50%, 0 0; } 50% { background-position: 0% 50%, 0 0; } }
+  @media (prefers-reduced-motion: reduce) { .foil::after { animation: none; background-position: 40% 50%, 0 0; } }
 
   /* Plan usage strip */
   .usage { padding-block: 10px; border-bottom: 1px solid var(--line-soft); max-width: 1280px; display: flex; flex-direction: column; gap: 8px; }
@@ -250,8 +270,8 @@
   .filters button[aria-pressed="true"] { background: var(--accent-soft); border-color: rgba(142, 168, 255, 0.4); color: var(--accent); }
   .feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
   .feed-day { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding: 8px 0 2px; }
-  .feed-item { display: grid; grid-template-columns: 56px auto 1fr; gap: 10px; align-items: baseline; padding-block: 4px; border-top: 1px solid var(--line-soft); font-size: var(--fs-sm); }
-  .feed-item time { color: var(--faint); }
+  .feed-item { display: grid; grid-template-columns: 9ch auto 1fr; gap: 10px; align-items: baseline; padding-block: 4px; border-top: 1px solid var(--line-soft); font-size: var(--fs-sm); }
+  .feed-item time { color: var(--faint); white-space: nowrap; }
   .feed-item.new { background: linear-gradient(90deg, var(--accent-soft), transparent 60%); }
 
   /* Project view */
@@ -413,8 +433,13 @@
     const live = streams.filter((s) => s.status !== "done");
     const status = streams.length ? st([...streams].sort((a, b) => rankStream(a) - rankStream(b))[0].status) : "idle";
     const updatedAt = [...streams.map((s) => s.updatedAt), meta.updatedAt].filter(Boolean).sort().pop();
-    const idleWeek = !live.some((s) => ["active", "waiting", "blocked"].includes(s.status)) && Date.now() - ts(updatedAt) > WEEK;
-    return { ...meta, id: slug, name: meta.name || slug, streams, liveStreams: live, status, updatedAt, dim: idleWeek };
+    const busy = live.some((s) => st(s.status) !== "idle");
+    // Finished for now: something got done, nothing is in progress and nothing waits on the user.
+    // Idle streams (parked ideas, backlogs) don't count as unfinished work.
+    const didWork = streams.some((s) => s.status === "done") || state.archive.some((a) => a.project === slug);
+    const complete = !busy && didWork && !state.needs.some((n) => !n.done && n.project === slug);
+    const idleWeek = !busy && Date.now() - ts(updatedAt) > WEEK;
+    return { ...meta, id: slug, name: meta.name || slug, streams, liveStreams: live, status: complete ? "done" : status, updatedAt, complete, dim: idleWeek && !complete };
   }
   function orderedProjects() {
     return allProjectSlugs().map(projectInfo).sort((a, b) =>
@@ -698,6 +723,10 @@
   }
   const togglePin = (p) => write(`projects/${p.id}`, { pinned: !p.pinned });
 
+  const parkedNote = (p) => {
+    const n = p.streams.filter((x) => st(x.status) === "idle").length;
+    return n ? el("span", { class: "dim-text" }, ` · ${n} parked idea list${n === 1 ? "" : "s"}`) : null;
+  };
   function projectCard(p) {
     const s = st(p.status);
     const shown = (p.liveStreams.length ? p.liveStreams : p.streams.filter((x) => x.legacy || !isOld(streamDoneAt(x)))).slice(0, 3);
@@ -705,19 +734,19 @@
     const shipped = p.streams.map((x) => x.lastShipped).filter((x) => x && ts(x.at)).sort((a, b) => ts(b.at) - ts(a.at))[0];
     const prs = p.streams.map((x) => x.pr).filter((x) => x && x.state !== "closed").slice(0, 3);
     const needCount = actionable(p.id).length;
-    return el("article", { class: `card s-${s}${p.dim ? " dim" : ""}` },
+    return el("article", { class: `card s-${s}${p.dim ? " dim" : ""}${p.complete ? " foil" : ""}` },
       el("div", { class: "card-head" },
         el("h3", {}, el("button", { type: "button", onclick: () => setTab(p.id) }, p.name)),
         el("div", { class: "btn-row" },
           el("button", { type: "button", class: "pin", "aria-pressed": String(!!p.pinned), title: p.pinned ? "Unpin" : "Pin to top", onclick: () => togglePin(p) }, p.pinned ? "Pinned" : "Pin"),
-          el("span", { class: "chip state" }, STATE_LABEL[s]))),
-      shown.length ? el("ul", { class: "card-streams" }, shown.map((x) => el("li", { class: `s-${st(x.status)}` },
+          el("span", { class: "chip state" }, p.complete ? ["All done ", el("span", { "aria-hidden": "true" }, "✦")] : STATE_LABEL[s]))),
+      p.complete ? el("div", { class: "all-done" }, el("span", { "aria-hidden": "true" }, "✦ "), "All done for now", parkedNote(p)) : shown.length ? el("ul", { class: "card-streams" }, shown.map((x) => el("li", { class: `s-${st(x.status)}` },
         el("span", { class: "dot state" }),
         el("span", {}, p.streams.length > 1 ? el("span", { class: "st-title" }, `${x.title}: `) : null, x.currentTask || "No active task")))) : el("div", { class: "muted" }, "No active task"),
       quiet.length ? el("div", {}, el("span", { class: `chip ${quiet[0].cls}` }, quiet[0].label)) : null,
       shipped ? el("div", { class: "shipped" }, el("b", {}, "Shipped "), shipped.url ? link(shipped.text, shipped.url) : shipped.text, " ", timeEl(shipped.at)) : null,
       el("div", { class: "card-foot" },
-        el("span", { class: "badges" }, prs.map(prChip), p.streams.length > 1 ? el("span", { class: "chip kind" }, `${p.liveStreams.length} chats`) : null),
+        el("span", { class: "badges" }, prs.map(prChip), p.liveStreams.length > 1 ? el("span", { class: "chip kind" }, `${p.liveStreams.length} chats`) : null),
         el("span", {}, needCount ? `${needCount} need you · ` : "", timeEl(p.updatedAt))));
   }
 
@@ -1119,20 +1148,22 @@
 
   function renderProgress(p) {
     const box = $("progress");
-    const pr = p ? progressFor(p.id) : null;
+    const pr = !p ? null : p.complete ? { donePct: 100, youPct: 0 } : progressFor(p.id);
     box.hidden = !pr;
+    box.classList.toggle("foil", !!p?.complete);
     if (!pr) { box.replaceChildren(); return; }
     box.style.setProperty("--pc", progressColor(pr.donePct));
-    box.title = `${pr.donePct}% of the live work in ${p.name} is done`
-      + (pr.youPct ? `. ${pr.youPct}% is waiting on you, so it can reach at most ${100 - pr.youPct}% until you do your part.` : ".")
-      + " Based on step sizes, not time or tokens.";
+    box.title = p.complete ? `Everything in ${p.name} is done for now. Nothing is waiting on you.`
+      : `${pr.donePct}% of the live work in ${p.name} is done`
+        + (pr.youPct ? `. ${pr.youPct}% is waiting on you, so it can reach at most ${100 - pr.youPct}% until you do your part.` : ". Nothing is waiting on you.")
+        + " Based on step sizes, not time or tokens.";
     box.replaceChildren(
       el("span", { class: "p-nums" },
         el("span", { class: "p-done" }, `${pr.donePct}%`),
         el("span", { class: "p-sep" }, "/"),
         el("span", { class: "p-total" }, "100%"),
-        pr.youPct ? el("span", { class: "p-sep" }, "−") : null,
-        pr.youPct ? el("span", { class: "p-you" }, `${pr.youPct}%`) : null),
+        el("span", { class: "p-sep" }, "−"),
+        el("span", { class: `p-you${pr.youPct ? "" : " zero"}` }, `${pr.youPct}%`)),
       el("span", { class: "p-bar", "aria-hidden": "true" },
         el("i", { class: "f-done", style: `width:${pr.donePct}%` }),
         pr.youPct ? el("i", { class: "f-you", style: `width:${pr.youPct}%` }) : null));

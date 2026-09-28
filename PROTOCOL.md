@@ -86,7 +86,18 @@ When a project tab is open, the header shows how far its live work has come, for
 - The first number is the share done. Its colour goes from red through yellow to green.
 - The last number, in orange, is the share waiting on the user. While it is above zero, the first number can reach at most 100 minus that share.
 
-The page computes this from the steps of the project's `active`, `waiting` and `blocked` streams, plus open `needs` items that belong to those streams (or to no stream). Each step weighs `S` = 1, `M` = 2 (the default) and `L` = 4, and each open need weighs 1. Steps with `by: "you"` and unanswered needs (snoozed ones included) count as the user's share. An answered need counts as done. The indicator is hidden when the project has no live stream, or its live streams have no steps and no open needs.
+The page computes this from the steps of the project's `active`, `waiting` and `blocked` streams, plus open `needs` items that belong to those streams (or to no stream). Each step weighs `S` = 1, `M` = 2 (the default) and `L` = 4, and each open need weighs 1. Steps with `by: "you"` and unanswered needs (snoozed ones included) count as the user's share. An answered need counts as done. The indicator is hidden when the project has no live stream (unless it is complete, see below), or its live streams have no steps and no open needs.
+
+**Finished for now.** A project counts as complete when:
+- at least one of its streams is `done`, or it has archived work;
+- no stream is in progress (anything other than `idle` or `done`);
+- none of its `needs` items is still open. Snoozed items and answers the chat hasn't handled yet count as open.
+
+`idle` streams, such as parked idea lists, don't count as unfinished. A complete project:
+- keeps a full green `100% / 100% − 0%` in the header;
+- shows as done on its tab;
+- gets a holographic "foil card" shimmer on its overview card;
+- isn't dimmed after a week.
 
 To keep it meaningful, agents should:
 - list the whole plan as steps up front, not only the current step;

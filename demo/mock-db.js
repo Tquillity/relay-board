@@ -75,6 +75,10 @@
         blockers: [{ text: "Can't ship without a free-tier limit.", severity: "high" }],
         recent: [{ text: "Middleware passes unit tests", at: at(3 * H) }],
       },
+      "garden-planner--ideas": {
+        project: "garden-planner", title: "Ideas for later", status: "idle", currentTask: "Parked: frost alerts, seed swap list.", updatedAt: at(9 * D),
+        steps: [{ title: "Frost alerts", state: "todo" }, { title: "Seed swap list", state: "todo" }],
+      },
       "garden-planner--main": {
         project: "garden-planner", title: "Planting calendar", status: "done", currentTask: "Shipped.", updatedAt: at(9 * D),
         lastShipped: { text: "Planting calendar v1", at: at(9 * D) },

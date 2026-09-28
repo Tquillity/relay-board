@@ -10,7 +10,7 @@ A live dashboard for following many Claude Code chats across many projects from 
 
 - **One tab per project**, with one card per chat ("workstream"): status, current task, steps, blockers, PR and CI state, recent activity.
 - **Needs you:** one list, across all projects, of what only you can do: tasks, approvals and decisions. Answer them on the board and the answer is relayed back to the chat that asked.
-- **Progress in the header** for the open project, for example `35% / 100% − 24%`. The first number is the share of live work that's done (red → yellow → green). The orange number is the share waiting on you, and the first number can't pass 100 minus it until you've done your part.
+- **Progress in the header** for the open project, for example `35% / 100% − 24%`. The first number is the share of live work that's done (red → yellow → green). The last number (orange when above zero) is the share waiting on you, and the first number can't pass 100 minus it until you've done your part. A project with nothing left to do stays at a green `100% / 100% − 0%`, and its card gets a holographic foil shimmer. Parked idea lists don't count as unfinished.
 - **Plan usage:** weekly (all models and Fable) and 5-hour bars, with an even-pace marker and a projection to the weekly reset.
 - **Quiet-chat detection:** a chat that says it's working but hasn't written for a while is flagged, and so is one waiting too long on something other than you.
 - **"Since you last looked"** digest and an activity feed.
