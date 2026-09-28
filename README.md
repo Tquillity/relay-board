@@ -1,103 +1,80 @@
 # Relay Board
 
-A live dashboard for following many Claude Code chats across many projects from one page. It runs as a single-file [claude.ai artifact](https://claude.ai) that uses the artifact `db` capability. Agents write short status updates, and the page does all the analysis in the browser, so keeping it current costs agents very few tokens.
+**One page to follow every Claude Code chat you have running, across all your projects.**
 
-> The screenshots below use a demo with made-up projects and data. The real board is a private artifact.
+When several AI coding agents work in parallel, it's hard to keep track of which one is making progress, which one has quietly stopped, and which one is waiting for *you*: an approval, a decision, a key only you can add. Relay Board answers that at a glance. Agents post short status updates as they work, and the board turns them into project tabs, a single "Needs you" list, progress bars and a "since you last looked" summary.
 
-![Overview: needs-you list, project cards and activity feed](docs/screenshots/overview.png)
+It is a single-file [claude.ai artifact](https://support.anthropic.com/en/articles/9487310-what-are-artifacts-and-how-do-i-use-them): about 1,400 lines of vanilla JavaScript and CSS, with no dependencies and no build step. The data lives in the artifact's built-in database.
 
-## What it shows
+**[Try the live demo →](https://tquillity.github.io/relay-board/demo/)** (made-up projects and data)
 
-- **One tab per project**, with one card per chat ("workstream"): status, current task, steps, blockers, PR and CI state, recent activity.
-- **Needs you:** one list, across all projects, of what only you can do: tasks, approvals and decisions. Answer them on the board and the answer is relayed back to the chat that asked.
-- **Progress in the header** for the open project, for example `35% / 100% − 24%`. The first number is the share of live work that's done (red → yellow → green). The last number (orange when above zero) is the share waiting on you, and the first number can't pass 100 minus it until you've done your part. A project with nothing left to do stays at a green `100% / 100% − 0%`, and its card gets a holographic foil shimmer. Parked idea lists don't count as unfinished.
-- **Plan usage:** weekly (all models and Fable) and 5-hour bars, with an even-pace marker and a projection to the weekly reset.
-- **Quiet-chat detection:** a chat that says it's working but hasn't written for a while is flagged, and so is one waiting too long on something other than you.
-- **"Since you last looked":** a folded one-line summary ("4 new for you · 1 shipped · 6 updates in Acme, Weather CLI"). Open it for the actual items: new "Needs you" items, what shipped or finished, updates grouped by project, items Claude closed, and chats that went quiet. Every item links to its project.
-- **Activity feed** across all projects.
-- **Foldable sections:** click any section header (Needs you, Projects, Activity, Workstreams, History) to fold it. The board remembers your choice in this browser.
-- **History:** done items fold away at once, move to a per-project History section after 7 days, and after 30 days are squeezed into one archive record per project and month. You can look back as far as you like, and the store never fills up.
+![Overview: the Needs-you list, project cards and the activity feed](docs/screenshots/overview.png)
+
+## Features
+
+- **A tab per project, a card per chat.** Status, current task, steps, blockers, PR and CI state, and recent activity for every agent chat ("workstream").
+- **Needs you.** One list, across all projects, of the tasks, approvals and decisions only you can handle. Answer them on the board, and the answer is relayed back to the chat that asked.
+- **Progress at a glance.** The header shows how far the open project's live work has come, for example `35% / 100% − 24%`. The last number is the share waiting on you, and progress can't pass 100 minus it until you've done your part. Finished projects stay at a green `100%` and get a holographic "foil card" shimmer.
+- **Since you last looked.** A one-line summary ("3 new for you · 1 shipped · 6 updates in Acme, Weather CLI") that opens into the actual items, each linked to its project.
+- **Quiet-chat detection.** A chat that says it's working but hasn't reported in a while is flagged as quiet, then as possibly stopped.
+- **Plan usage.** Weekly and 5-hour usage bars for the Claude plan, with an even-pace marker and a projection to the weekly reset.
+- **History that never fills up.** Done items fold away, move to a per-project History after 7 days, and after 30 days are condensed into one archive record per project and month.
+- **Foldable sections** that remember what you folded, a cross-project activity feed, and a layout that works on a phone.
 
 ![Since you last looked, opened](docs/screenshots/digest.png)
 
-![Project view: progress in the header, workstreams with sized steps and "You" steps](docs/screenshots/project.png)
-
-![History section](docs/screenshots/history.png)
+![A project tab: progress in the header, and workstreams with sized steps](docs/screenshots/project.png)
 
 ## How it works
 
 ```
-Claude Code chats ──(ArtifactData writes, one per milestone)──▶ artifact db ◀──(live snapshots)── index.html in your browser
-        ▲                                                            │
-        └──────────── send_message: "answer waiting on needs/<id>" ◀─┘  (any agent relays your answers)
+Claude Code chats ──(short status writes, one per milestone)──▶ artifact database ◀──(live updates)── the board in your browser
+        ▲                                                                │
+        └──────────────── "an answer is waiting for you" ◀───────────────┘  (any agent relays your answers)
 ```
 
-- Agents write four collections: `projects`, `streams`, `needs` and `usage`. The page writes the fifth, `archive`, plus your answers.
-- Everything analytical happens in the page: progress, projections, quiet detection, the digest and archiving.
-- The full data model and the rules agents follow are in [`PROTOCOL.md`](PROTOCOL.md).
+- **Agents write facts; the page does the thinking.** Agents write four small collections: `projects`, `streams`, `needs` and `usage`. Progress, projections, quiet detection, the digest and archiving are all computed in the browser. Keeping the board current therefore costs agents very few tokens.
+- **Answers flow back.** When you answer a "Needs you" item, the next agent that writes to the board claims the answer with a versioned write, so two agents can't both take it. It then messages the chat that asked.
+- **Safe by construction.** The page builds all its DOM with `textContent`, never `innerHTML`. It only links `http(s)` URLs, and it never deletes a record before its summary is safely archived.
 
-## Try the demo
+The full data model and the rules agents follow are in [`PROTOCOL.md`](PROTOCOL.md).
+
+## Run the demo locally
+
+Requires Node.js 18 or later. There is nothing to install.
 
 ```bash
-node demo/build.mjs
+npm run demo    # builds demo/index.html
 ```
 
-Then open `demo/board-demo.html` in a browser. It is the real `index.html` with an in-memory stand-in for the `db` capability ([`demo/mock-db.js`](demo/mock-db.js)), filled with made-up projects. Buttons work, but nothing is saved.
-
-To take the screenshots again, point `CHROME` at your Chrome binary (`google-chrome` on Linux, `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"` on macOS, `"/c/Program Files/Google/Chrome/Application/chrome.exe"` in Git Bash on Windows), then:
+Open `demo/index.html` in a browser. It is the real `index.html` with an in-memory stand-in for the artifact database ([`demo/mock-db.js`](demo/mock-db.js)), filled with made-up projects. Buttons work, but nothing is saved.
 
 ```bash
-DEMO="file://$(pwd -W 2>/dev/null || pwd)/demo/board-demo.html"
-shot() { "$CHROME" --headless=new --hide-scrollbars --lang=en-US --window-size="$2" --virtual-time-budget=4000 --user-data-dir="$(mktemp -d)" --screenshot="$PWD/docs/screenshots/$1.png" "$DEMO$3"; }
-shot overview 1280,1500 ""
-shot project  1280,1500 "#p=acme-storefront"
-shot digest   1280,720  "?open=since"
-shot history  1280,560  "?open=history&only=history#p=acme-storefront"
+npm run check   # checks that the page and the demo data parse, and that the demo is up to date
 ```
 
-`?open=` unfolds sections whose header starts with that word (`since` is the digest). A fresh `--user-data-dir` each time lets this run while your normal Chrome is open, and starts with every section in its default open or folded state.
+## Set up your own board
 
-## Publish a change to your own board
+1. In [claude.ai](https://claude.ai), publish `index.html` as an artifact with the `db` capability enabled. Keep it private: it will show your projects.
+2. Give your agents the board's URL and the rules in [`PROTOCOL.md`](PROTOCOL.md). A global instruction file works well, for example `~/.claude/CLAUDE.md` for Claude Code, so that every chat in every project follows them.
+3. To change the page later, edit `index.html`, run `npm run check`, and republish it to the same artifact. The stored data carries over.
 
-Use the `Artifact` tool with `action: publish`, `url` set to your board's URL, and `file_path` set to `index.html`.
+## Known limitations
 
-- Leave out `capabilities`. The `db` capability then carries over from the current version.
-- Leave out `icon` and `contract`, so the board keeps its icon and runtime version (currently `0.2.60`).
-- Always pass `url`. Publishing without it creates a separate board.
+- The "Open chat" links use the `claude://` scheme, which only opens the chat when the Claude desktop app is installed.
+- The usage projection based on last week's rhythm needs a full week of readings, so it only kicks in during the second week.
+- Plan usage readings come from the Claude Code desktop app's session tools (see [`PROTOCOL.md`](PROTOCOL.md)). "Fable" is one of Claude's model tiers, which has its own weekly limit.
 
-Commit every published change, so `main` always matches what is live.
+## Project layout
 
-## Verify a change
-
-1. Check that the page script parses (Git Bash or any POSIX shell):
-
-   ```bash
-   tr -d '\r' < index.html | sed -n '/^<script>$/,/^<\/script>$/p' | sed '1d;$d' > "${TMP:-/tmp}/board.js" && node --check "${TMP:-/tmp}/board.js"
-   ```
-
-   This expects the page's single `<script>` and `</script>` tags each alone on a line at column 0.
-
-2. Open the demo to check the change visually.
-3. After publishing, run one `ArtifactData` `list` for each collection the change touches, and check the documents still have the shape the page expects.
-
-## Privacy and secrets
-
-This repo is public; the board is not.
-- Never commit secrets (tokens, keys, passwords, connection strings), the real board's URL, or anything copied from its database.
-- Screenshots and examples come only from the demo's made-up data.
-
-## Not yet verified
-
-- The answer relay (answered → relayed → handled via `send_message`) hasn't been exercised end to end.
-- The `claude://` "Open chat" links may not open from inside the artifact.
-- The last-week-rhythm usage projection needs a full week of readings before it kicks in.
-
-## Files
-
-| File | Purpose |
+| Path | What it is |
 | --- | --- |
-| `index.html` | The page, identical to the published version |
-| `PROTOCOL.md` | Data model and the rules agents follow when writing to the board |
-| `demo/mock-db.js` | Made-up data and an in-memory `db` for the demo |
-| `demo/build.mjs` | Builds `demo/board-demo.html` (not committed) |
-| `docs/screenshots/` | Screenshots taken from the demo |
+| [`index.html`](index.html) | The board: markup, styles and script in one file |
+| [`PROTOCOL.md`](PROTOCOL.md) | Data model and the rules agents follow |
+| [`demo/`](demo) | Made-up data, an in-memory database, and the built demo page |
+| [`scripts/check.mjs`](scripts/check.mjs) | Dependency-free checks |
+| [`docs/screenshots/`](docs/screenshots) | Screenshots taken from the demo, and how to retake them |
+
+## License
+
+[MIT](LICENSE) © Mikael Sundh

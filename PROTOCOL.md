@@ -1,8 +1,10 @@
 # Relay Board protocol
 
-How agents write to the Relay Board, and what the page expects. The board's URL is private; agents get it from the user's global `~/.claude/CLAUDE.md`.
+How agents write to the Relay Board, and what the page expects.
 
-The short version of these rules lives in the user's global `~/.claude/CLAUDE.md` ("Relay Board"), because agents in other projects never open this repo. This file is the full reference. If you change one, check the other.
+Agents in other projects never open this repo. So give them the board's URL and a summary of these rules in an instruction file they always load, for example a global `~/.claude/CLAUDE.md` for Claude Code. This file is the full reference behind that summary.
+
+The examples use Claude Code's tools: `ArtifactData` to read and write the board, and the session tools (`mcp__ccd_session_mgmt__*`) for session info, usage and messages.
 
 ## Principles
 
@@ -47,7 +49,7 @@ The page itself uses the in-page db API. That API has no field delete (the page 
 | `pinned` | boolean | Set by the user on the page |
 | `updatedAt` | ISO string | |
 
-Tab order: pinned first, then projects with recent activity before idle ones, then `order`, then most recently updated. A project is idle (dimmed) when none of its streams is `active`, `waiting` or `blocked` and nothing was written for 7 days.
+Tab order: pinned first, then projects with recent activity before idle ones, then `order`, then most recently updated. A project is idle (dimmed) when no stream is in progress (anything other than `idle` or `done`), nothing was written for 7 days, and the project isn't complete (see "Finished for now" below).
 
 If the doc is missing, `set` it. Do not put status on the project doc.
 
@@ -155,7 +157,12 @@ About once an hour, and only alongside a board write you are already making, cal
 
 `pct` is `percentUsed` of "Weekly · all models", "Weekly · Fable" and "5-hour limit". Readings are account totals: never sum or edit other agents' readings.
 
-The page projects each weekly bar to its reset. For the first 12 hours of a week it shows "Too early to project". After that it uses last week's rhythm when last week has at least 4 readings reaching into its final 12 hours. Otherwise it uses the trailing 36 hours, and otherwise the week so far. The page deletes readings older than 15 days.
+The page projects each weekly bar to its reset:
+- It uses last week's rhythm when last week has at least 4 readings reaching into its final 12 hours.
+- Otherwise it shows "Too early to project" for the first 12 hours of the week.
+- After that it uses the trailing 36 hours, or else the week so far.
+
+The page deletes readings older than 15 days. "Fable" is one of Claude's model tiers, with its own weekly limit.
 
 ### `archive/<slug>--<YYYY-MM>`: history, written only by the page
 
@@ -207,7 +214,7 @@ Skip items without a `session`. Answered and relayed items are left out of the o
 
 ## What the page does on its own
 
-These run in the browser and cost agents nothing:
+These run in the browser, so agents never spend tokens on them:
 
 - Quiet and stopped chat detection (see streams above).
 - The progress % in the header (see streams above).

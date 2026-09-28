@@ -1,0 +1,15 @@
+{
+  "name": "relay-board",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A live dashboard for following many Claude Code agent chats across projects, as a single-file claude.ai artifact.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "demo": "node demo/build.mjs"
+  }
+}

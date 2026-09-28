@@ -1,4 +1,5 @@
-// Demo data for the Relay Board: made-up projects only, never real board data.
+// Demo data for the Relay Board. Everything here is made up (projects, repos, links, answers);
+// none of it is real board data.
 // Stands in for the claude.ai `db` capability so the page runs from a plain file.
 (() => {
   const now = Date.now(), M = 60e3, H = 60 * M, D = 24 * H;
@@ -148,24 +149,4 @@
   window.claude = { use: async (name) => (name === "db" ? db : null) };
   // Pretend the viewer last looked 6 hours ago, so "Since you last looked" has something to show.
   try { if (!localStorage.getItem("relay-last-seen")) localStorage.setItem("relay-last-seen", String(now - 6 * H)); } catch {}
-
-  // For screenshots: ?open=history,finished unfolds matching section headers and "Show …" lists, and
-  // ?only=history hides the other sections of a project view.
-  const q = new URLSearchParams(location.search);
-  if (q.get("open")) {
-    setTimeout(() => {
-      for (const word of q.get("open").split(",")) {
-        const re = new RegExp(`^Show .*${word}`, "i");
-        [...document.querySelectorAll(".collapser")].filter((b) => re.test(b.textContent)).forEach((b) => b.click());
-        // Folded section headers, e.g. ?open=history
-        [...document.querySelectorAll(".eyebrow-btn[aria-expanded=false], .digest-toggle[aria-expanded=false]")]
-          .filter((b) => b.textContent.replace(/^\W+/, "").toLowerCase().startsWith(word.toLowerCase())).forEach((b) => b.click());
-      }
-    }, 400);
-  }
-  if (q.get("only") === "history") {
-    const css = document.createElement("style");
-    css.textContent = 'main > section:not(.proj-head):not([aria-labelledby^="hist-h"]) { display: none !important; }';
-    document.head.append(css);
-  }
 })();
