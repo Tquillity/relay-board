@@ -116,6 +116,8 @@
   }
   .card.foil { border-color: rgba(111, 207, 151, 0.45); box-shadow: 0 0 0 1px rgba(111, 207, 151, 0.12), 0 8px 28px -14px rgba(111, 207, 151, 0.45); }
   .card.foil > * { position: relative; z-index: 2; }
+  nav.tabs button.foil { background: var(--ok-soft); color: var(--ok); border-radius: 7px 7px 0 0; box-shadow: inset 0 0 0 1px rgba(111, 207, 151, 0.3); }
+  nav.tabs button.foil[aria-selected="true"] { border-bottom-color: var(--ok); }
   .all-done { font-size: var(--fs-sm); font-weight: 600; color: var(--ok); }
   @keyframes foil-sweep { 0%, 100% { background-position: 100% 50%, 0 0; } 50% { background-position: 0% 50%, 0 0; } }
   @media (prefers-reduced-motion: reduce) { .foil::after { animation: none; background-position: 40% 50%, 0 0; } }
@@ -1181,6 +1183,7 @@
     nav.append(b);
     for (const p of projects) {
       const t = mk(p.id, p.name, el("span", { class: `dot state s-${st(p.status)}` }));
+      if (p.complete) { t.classList.add("foil"); t.title = "All done for now"; }
       const n = actionable(p.id).length;
       if (n) t.append(el("span", { class: "count" }, n));
       nav.append(t);
