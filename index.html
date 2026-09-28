@@ -313,7 +313,7 @@
   const STATE_LABEL = { active: "Working", waiting: "Waiting", blocked: "Blocked", done: "Done", idle: "Idle", todo: "To do" };
   const HOUR = 3600e3, DAY = 24 * HOUR, WEEK = 7 * DAY;
   const state = {
-    projects: [], streams: [], needs: [], usage: [],
+    projects: [], streams: [], needs: [], usage: [], archive: [], loaded: {}, fresh: {},
     tab: "overview", live: false, db: null, ready: false,
     open: {}, drafts: {}, feedFilter: "all", feedLimit: 40,
   };
@@ -592,7 +592,7 @@
     const act = open.filter((n) => !isSnoozed(n) && !n.answer).sort(byAge);
     const answered = open.filter((n) => !isSnoozed(n) && n.answer).sort((a, b) => ts(b.answer?.at) - ts(a.answer?.at));
     const snoozed = open.filter(isSnoozed).sort((a, b) => ts(a.snoozedUntil) - ts(b.snoozedUntil));
-    const done = items.filter((n) => n.done).sort((a, b) => ts(b.doneAt) - ts(a.doneAt));
+    const done = items.filter((n) => n.done && !isOld(needDoneAt(n))).sort((a, b) => ts(b.doneAt) - ts(a.doneAt));
     const sec = el("section", { "aria-labelledby": `needs-h-${slug || "all"}` });
     sec.append(el("h2", { class: "eyebrow", id: `needs-h-${slug || "all"}` }, "Needs you", el("span", { class: "rule" }), el("span", { class: "mono" }, `${act.length} open`)));
     const panel = el("div", { class: "panel needs" });
@@ -700,7 +700,7 @@
 
   function projectCard(p) {
     const s = st(p.status);
-    const shown = (p.liveStreams.length ? p.liveStreams : p.streams).slice(0, 3);
+    const shown = (p.liveStreams.length ? p.liveStreams : p.streams.filter((x) => x.legacy || !isOld(streamDoneAt(x)))).slice(0, 3);
     const quiet = p.streams.map(quietness).filter(Boolean);
     const shipped = p.streams.map((x) => x.lastShipped).filter((x) => x && ts(x.at)).sort((a, b) => ts(b.at) - ts(a.at))[0];
     const prs = p.streams.map((x) => x.pr).filter((x) => x && x.state !== "closed").slice(0, 3);
@@ -799,7 +799,7 @@
         el("span", { class: `chip state s-${s}` }, el("span", { class: "dot state" }), STATE_LABEL[s]))));
     frag.append(needsPanel(p.id));
     const live = p.streams.filter((x) => x.status !== "done");
-    const finished = p.streams.filter((x) => x.status === "done");
+    const finished = p.streams.filter((x) => x.status === "done" && (x.legacy || !isOld(streamDoneAt(x))));
     const sec = el("section", { "aria-label": "Workstreams", style: "display:flex;flex-direction:column;gap:var(--gap)" });
     sec.append(el("h2", { class: "eyebrow" }, "Workstreams", el("span", { class: "rule" }), el("span", { class: "mono" }, `${live.length} open`)));
     if (!p.streams.length) sec.append(el("p", { class: "notice" }, "No workstreams yet."));
@@ -811,7 +811,112 @@
       if (state.open[key]) finished.forEach((x) => sec.append(streamPanel(x)));
     }
     frag.append(sec);
+    const hist = historyPanel(p);
+    if (hist) frag.append(hist);
     return frag;
+  }
+
+  // ---- History ---------------------------------------------------------------
+  // Done items stay in the normal view for 7 days, then move to History. After 30 days the page
+  // squeezes them into one archive doc per project and month (archive/<slug>--<YYYY-MM>) and
+  // deletes the full card, so history stays browsable without filling the store. Zero agent tokens.
+  const SHOW_DAYS = 7, ARCHIVE_DAYS = 30;
+  const isOld = (iso, days = SHOW_DAYS) => ts(iso) > 0 && Date.now() - ts(iso) > days * DAY;
+  const clip = (v, n = 300) => (typeof v === "string" ? v.slice(0, n) : null);
+  // Readable key plus a hash of the raw id, so ids that differ only in punctuation never collide.
+  const hash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36); };
+  const itemKey = (kind, id) => `${kind}_${String(id).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 150)}_${hash(String(id))}`;
+  // When a done item finished. Falls back so nothing is stuck in the "done" list forever.
+  const streamDoneAt = (s) => (ts(s.updatedAt) ? s.updatedAt : s.lastShipped?.at || null);
+  const needDoneAt = (n) => [n.doneAt, n.updatedAt, n.createdAt].find((x) => ts(x)) || null;
+  function streamEntry(s) {
+    const firstAt = (Array.isArray(s.recent) ? s.recent : []).map((r) => r && r.at).filter((a) => ts(a)).sort()[0] || null;
+    return {
+      kind: "stream", title: clip(s.title, 120) || "Workstream",
+      summary: clip(s.lastShipped?.text) || clip(s.currentTask),
+      url: safeUrl(s.lastShipped?.url) || safeUrl(s.pr?.url) || null,
+      pr: s.pr && (s.pr.number || s.pr.url) ? { number: s.pr.number ?? null, url: safeUrl(s.pr.url), state: clip(s.pr.state, 20) } : null,
+      agent: clip(s.agent, 60), startedAt: firstAt, finishedAt: streamDoneAt(s),
+    };
+  }
+  function needEntry(n) {
+    const a = n.answer || {};
+    return {
+      kind: "need", title: clip(n.title, 200) || "Untitled", needKind: clip(n.kind, 20),
+      summary: clip([a.choice, a.note].filter(Boolean).join(" · ")) || null,
+      url: safeUrl(n.link), doneBy: clip(n.doneBy, 20), startedAt: n.createdAt || null, finishedAt: needDoneAt(n),
+    };
+  }
+  function historyFor(slug) {
+    const rows = [];
+    for (const s of state.streams) if (s.project === slug && s.status === "done" && isOld(streamDoneAt(s))) rows.push(streamEntry(s));
+    for (const n of state.needs) if (n.project === slug && n.done && isOld(needDoneAt(n))) rows.push(needEntry(n));
+    for (const doc of state.archive) {
+      if (doc.project !== slug || !doc.items || typeof doc.items !== "object") continue;
+      for (const e of Object.values(doc.items)) if (e && typeof e === "object") rows.push(e);
+    }
+    return rows.sort((a, b) => ts(b.finishedAt) - ts(a.finishedAt));
+  }
+  function historyPanel(p) {
+    const rows = historyFor(p.id);
+    if (!rows.length) return null;
+    const key = `history-${p.id}`;
+    const open = !!state.open[key];
+    const sec = el("section", { "aria-labelledby": `hist-h-${p.id}` });
+    sec.append(el("h2", { class: "eyebrow", id: `hist-h-${p.id}` }, "History", el("span", { class: "rule" }), el("span", { class: "mono" }, `${rows.length}`)));
+    const panel = el("div", { class: "panel" });
+    panel.append(el("button", { type: "button", class: "collapser", "aria-expanded": String(open), onclick: () => { state.open[key] = !open; render(); } },
+      open ? "Hide history" : `Show ${rows.length} finished item${rows.length === 1 ? "" : "s"} older than ${SHOW_DAYS} days`));
+    if (open) {
+      const list = el("ul", { class: "feed" });
+      let month = "";
+      for (const e of rows) {
+        const d = new Date(ts(e.finishedAt));
+        const label = ts(e.finishedAt) ? d.toLocaleDateString(undefined, { month: "long", year: "numeric" }) : "Undated";
+        if (label !== month) { month = label; list.append(el("li", { class: "feed-day" }, label)); }
+        const title = e.url ? link(e.title, e.url) : el("span", {}, e.title);
+        list.append(el("li", { class: "feed-item hist-item" },
+          el("time", { class: "mono", datetime: e.finishedAt || "", title: ts(e.finishedAt) ? d.toLocaleString() : "" }, ts(e.finishedAt) ? d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) : ""),
+          el("span", { class: "chip kind" }, e.kind === "need" ? (KIND_LABEL[e.needKind] || "Need") : "Chat"),
+          el("span", {}, el("strong", {}, title), e.summary ? el("span", { class: "dim-text" }, ` · ${e.summary}`) : null,
+            e.pr?.number ? el("span", { class: "dim-text" }, ` · PR #${e.pr.number}`) : null)));
+      }
+      panel.append(list);
+    }
+    sec.append(panel);
+    return sec;
+  }
+
+  // Runs once per page load, after the first snapshots, only when something is over 30 days old.
+  let archiving = false;
+  async function archiveOld() {
+    if (archiving || !state.db || !["streams", "needs", "archive"].every((c) => state.fresh[c])) return;
+    const monthOf = (iso) => new Date(ts(iso)).toISOString().slice(0, 7);
+    const groups = new Map();
+    const add = (slug, iso, key, entry, path) => {
+      if (!slug || !/^[\w.-]+$/.test(slug)) return;
+      const id = `${slug}--${monthOf(iso)}`;
+      if (!groups.has(id)) groups.set(id, { slug, month: monthOf(iso), items: {}, paths: [] });
+      const g = groups.get(id); g.items[key] = entry; g.paths.push(path);
+    };
+    for (const s of state.streams) if (s.status === "done" && isOld(streamDoneAt(s), ARCHIVE_DAYS)) add(s.project, streamDoneAt(s), itemKey("stream", s.id), streamEntry(s), `streams/${s.id}`);
+    for (const n of state.needs) if (n.done && isOld(needDoneAt(n), ARCHIVE_DAYS)) add(n.project, needDoneAt(n), itemKey("need", n.id), needEntry(n), `needs/${n.id}`);
+    archiving = true;
+    if (!groups.size) return;
+    try {
+      const lock = state.db.doc("archive/_lock");
+      const holder = `tab-${Math.random().toString(36).slice(2)}`;
+      for (const [id, g] of groups) {
+        // Take (or renew) the lease before each month, so a slow run never overlaps another tab.
+        if (!(await lock.acquire({ holder, ttlMs: 120000 })).acquired) return;
+        const ref = state.db.doc(`archive/${id}`);
+        const snap = await ref.get();
+        if (snap.exists) await ref.update({ items: g.items, updatedAt: new Date().toISOString() });
+        else await ref.set({ project: g.slug, month: g.month, items: g.items, updatedAt: new Date().toISOString() });
+        // Delete the full cards only after their summaries are safely stored.
+        for (const path of g.paths) await state.db.doc(path).delete();
+      }
+    } catch (e) { console.warn("Relay Board: archiving skipped, will retry on next load", e?.code || e); }
   }
 
   // ---- Plan usage -------------------------------------------------------
@@ -1085,11 +1190,16 @@
     const onErr = () => { $("pulse").classList.remove("live"); $("sub").textContent = "Live updates paused. Reload to reconnect."; };
     const sub = (name, apply) => db.collection(name).onSnapshot((snap) => {
       apply(snap.docs.filter((d) => d.exists).map((d) => ({ id: d.id, ...d.data() })));
+      state.loaded[name] = true;
+      // Only archive from server-confirmed data, never from a cached snapshot.
+      if (!snap.metadata?.fromCache) state.fresh[name] = true;
       scheduleRender();
+      archiveOld();
     }, onErr);
     sub("projects", (rows) => { state.projects = rows; });
     sub("streams", (rows) => { state.streams = rows; });
     sub("needs", (rows) => { state.needs = rows; });
+    sub("archive", (rows) => { state.archive = rows.filter((r) => r.id !== "_lock"); });
     db.collection("usage").onSnapshot((snap) => {
       state.usage = snap.docs.filter((d) => d.exists).map((d) => ({ id: d.id, ...d.data() }));
       renderUsage();

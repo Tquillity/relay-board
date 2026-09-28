@@ -146,6 +146,32 @@ About once an hour, and only alongside a board write you are already making, cal
 
 The page projects each weekly bar to its reset. For the first 12 hours of a week it shows "Too early to project". After that it uses last week's rhythm when last week has at least 4 readings reaching into its final 12 hours. Otherwise it uses the trailing 36 hours, and otherwise the week so far. The page deletes readings older than 15 days.
 
+### `archive/<slug>--<YYYY-MM>`: history, written only by the page
+
+Done items are kept, then slimmed down, by the page itself:
+
+| Age of a done stream or need | Where it shows |
+| --- | --- |
+| 0-7 days | Folded under "Show N finished" / "Show N done" |
+| 7-30 days | The project's **History** section (full doc still stored) |
+| Over 30 days | Summarised into the archive doc for its project and month; the full doc is deleted |
+
+Age is counted from a stream's `updatedAt` (else `lastShipped.at`) and a need's `doneAt` (else `updatedAt`, else `createdAt`). A legacy "Main" stream is never moved or archived; its own chat migrates it. An archive doc looks like:
+
+```json
+{
+  "project": "<slug>", "month": "2026-08", "updatedAt": "...",
+  "items": {
+    "stream_<id>": { "kind": "stream", "title": "...", "summary": "...", "url": "...", "pr": { "number": 7, "url": "...", "state": "merged" }, "agent": "...", "startedAt": "...", "finishedAt": "..." },
+    "need_<id>":   { "kind": "need", "title": "...", "needKind": "decision", "summary": "<answer>", "url": "...", "doneBy": "claude", "startedAt": "...", "finishedAt": "..." }
+  }
+}
+```
+
+The page archives once per load, only from server-confirmed (not cached) data, and renews a lease on `archive/_lock` before each month, so two open tabs don't run at the same time. If archiving fails (a read-only viewer, a full store), nothing is deleted and it retries on the next load. `items` is a map, so merge-updates from different tabs never overwrite each other. Summaries are written before the full docs are deleted.
+
+Agents never write to `archive`. So that a finished chat's card isn't archived early, only touch your stream while the chat is running. After 30 days a done stream may be gone: if you resume an old chat, `set` a fresh stream.
+
 ## Answer relay
 
 The user can answer a `needs` item on the board. The page writes `answer: {choice, note, at}` and `answerState: "answered"`. The board is private to the user, so an answer is the user's instruction for that item.
@@ -178,4 +204,5 @@ These run in the browser and cost agents nothing:
 - The activity feed, built from every stream's `recent`.
 - Usage projections, the even-pace marker and the week curve.
 - Pruning of old usage readings.
+- Moving done items to History after 7 days and archiving them after 30 (see `archive` above).
 - Answering, snoozing, closing and reopening `needs` items.

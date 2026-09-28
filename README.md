@@ -8,6 +8,7 @@ The Relay Board is a live dashboard of all Claude agent work across the user's p
 - A cross-project **Needs you** list: tasks, approvals and decisions only the user can handle. The user can answer them on the board, and the answer is relayed back to the chat that asked.
 - A progress indicator in the header for the open project, for example `22% / 100% − 12%`. The first number is the share done; the orange one is the share waiting on the user.
 - Plan usage bars (weekly all models, weekly Fable, 5-hour) with projections.
+- A History section per project. Done items fold away at once, move to History after 7 days, and after 30 days are squeezed into one archive record per project and month, so the board never fills up.
 
 Agents write the data; the page does all the analysis (quiet-chat detection, "Since you last looked" digest, activity feed, usage projections). This keeps the agents' token cost low.
 
