@@ -41,6 +41,23 @@ test("actionable needs leave out snoozed, answered, relayed and handled items", 
   assert.deepEqual(ids(core.actionable(board({ needs }), "demo", NOW)), ["open", "snooze-over"]);
 });
 
+test("a relayed answer counts as stuck after 2 hours without being handled", () => {
+  const relayed = (fields) => need({ answer: { choice: "Yes", at: before(3 * HOUR) }, answerState: "relayed", ...fields });
+  assert.equal(core.relayStuck(relayed({ relayedAt: before(2 * HOUR) }), NOW), false);
+  assert.equal(core.relayStuck(relayed({ relayedAt: before(2 * HOUR + 1) }), NOW), true);
+  assert.equal(core.relayStuck(relayed({ relayedAt: before(MINUTE) }), NOW), false);
+  // Without a relayedAt, the answer's own time counts.
+  assert.equal(core.relayStuck(relayed({}), NOW), true);
+  assert.equal(core.relayStuck(relayed({ answer: { choice: "Yes", at: before(HOUR) } }), NOW), false);
+  // Handled, still waiting to be picked up, done, or never answered: not stuck.
+  assert.equal(core.relayStuck(relayed({ relayedAt: before(DAY), answerState: "handled" }), NOW), false);
+  assert.equal(core.relayStuck(relayed({ relayedAt: before(DAY), answerState: "answered" }), NOW), false);
+  assert.equal(core.relayStuck(relayed({ relayedAt: before(DAY), done: true }), NOW), false);
+  assert.equal(core.relayStuck(need({ answerState: "relayed", relayedAt: before(DAY) }), NOW), false);
+  // No valid timestamp at all: can't tell, so not flagged.
+  assert.equal(core.relayStuck(relayed({ relayedAt: "soon", answer: { choice: "Yes", at: "yesterday" } }), NOW), false);
+});
+
 test("the panel lists unanswered items high priority first, then oldest first", () => {
   const needs = [
     need({ id: "new", createdAt: before(MINUTE) }),

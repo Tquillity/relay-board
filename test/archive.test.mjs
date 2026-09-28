@@ -1,5 +1,5 @@
 // The archive planner: which done items over 30 days old get summarised into
-// archive/<slug>--<YYYY-MM>, and which full docs are deleted afterwards.
+// archive/<slug>--<YYYY-MM>, and which full docs are deleted afterwards (if still unchanged).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadCore, board, stream, need, project, NOW, DAY } from "./helpers.mjs";
@@ -21,7 +21,10 @@ test("done streams and needs over 30 days old are grouped per project and month"
   assert.equal(g.id, "demo--2026-08");
   assert.equal(g.slug, "demo");
   assert.equal(g.month, "2026-08");
-  assert.deepEqual(g.paths, ["streams/demo--login", "needs/demo-domain"]);
+  assert.deepEqual(g.cards, [
+    { kind: "stream", key: core.itemKey("stream", "demo--login"), path: "streams/demo--login", stamp: core.archiveStamp("stream", s) },
+    { kind: "need", key: core.itemKey("need", "demo-domain"), path: "needs/demo-domain", stamp: core.archiveStamp("need", n) },
+  ]);
   assert.deepEqual(g.items, {
     [core.itemKey("stream", "demo--login")]: core.streamEntry(s),
     [core.itemKey("need", "demo-domain")]: core.needEntry(n),
@@ -81,5 +84,20 @@ test("ids that differ only in punctuation stay separate items", () => {
   const streams = [stream({ id: "demo--a.b", status: "done", updatedAt: old }), stream({ id: "demo--a_b", status: "done", updatedAt: old })];
   const [g] = plan({ streams });
   assert.equal(Object.keys(g.items).length, 2);
-  assert.deepEqual(g.paths, ["streams/demo--a.b", "streams/demo--a_b"]);
+  assert.deepEqual(g.cards.map((c) => c.path), ["streams/demo--a.b", "streams/demo--a_b"]);
+});
+
+test("the archive stamp changes when a card is resumed or reopened, and only then", () => {
+  const s = stream({ status: "done", updatedAt: "2026-08-10T09:00:00Z" });
+  const stamp = core.archiveStamp("stream", s);
+  assert.equal(core.archiveStamp("stream", { ...s, title: "Renamed" }), stamp);
+  assert.notEqual(core.archiveStamp("stream", { ...s, status: "active" }), stamp);
+  assert.notEqual(core.archiveStamp("stream", { ...s, updatedAt: "2026-09-28T11:00:00Z" }), stamp);
+  const n = need({ done: true, doneAt: "2026-08-20T09:00:00Z", answer: { choice: "Yes" }, answerState: "handled" });
+  const nStamp = core.archiveStamp("need", n);
+  assert.notEqual(core.archiveStamp("need", { ...n, done: false }), nStamp);
+  assert.notEqual(core.archiveStamp("need", { ...n, answerState: "answered" }), nStamp);
+  assert.notEqual(core.archiveStamp("need", { ...n, doneAt: "2026-09-28T11:00:00Z" }), nStamp);
+  assert.equal(core.archiveStamp("need", null), null);
+  assert.equal(core.archiveStamp("stream", "not a doc"), null);
 });

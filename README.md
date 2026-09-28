@@ -53,7 +53,7 @@ npm run demo    # builds docs/demo/index.html
 Open `docs/demo/index.html` in a browser. It is the real `index.html` with an in-memory stand-in for the artifact database ([`demo/mock-db.js`](demo/mock-db.js)), filled with made-up projects. Buttons work, but nothing is saved.
 
 ```bash
-npm run check   # checks that the page and the demo data parse, and that the demo is up to date
+npm run check   # the page and demo parse, the demo is up to date, and nothing private is committed
 ```
 
 ## Tests
@@ -61,13 +61,16 @@ npm run check   # checks that the page and the demo data parse, and that the dem
 ```bash
 npm test            # everything
 npm run test:unit   # unit tests only, well under a second
-npm run test:e2e    # the demo in headless Chrome
+npm run test:e2e    # the demo and scripted scenarios in headless Chrome
 ```
 
 The tests use Node's built-in test runner, so there is still nothing to install.
 
-- **Unit tests** load the page's core script straight from `index.html` into a sandbox with no DOM, and check it against the rules in [`PROTOCOL.md`](PROTOCOL.md). They cover progress weights and rounding (including a randomised check that done plus waiting-on-you never passes 100%), when a project counts as finished, quiet thresholds, needs and snoozing, History and archiving, usage projections, and the digest. Malformed data, unsafe links and exact boundaries are covered too. Every unit test runs against a fixed clock.
-- **End-to-end tests** build the demo, load it in headless Chrome and check what renders: tabs and badges, the progress header, the foil on the finished project, the digest, and History. They are skipped if Chrome isn't found. Set `CHROME=/path/to/chrome` to point at one.
+- **Unit tests** load the page's core script straight from `index.html` into a sandbox with no DOM, and check it against the rules in [`PROTOCOL.md`](PROTOCOL.md). They cover progress weights and rounding (including a randomised check that done plus waiting-on-you never passes 100%), when a project counts as finished, quiet thresholds, needs, snoozing and stuck answers, History and archiving, usage projections, and the digest. Malformed data, unsafe links and exact boundaries are covered too, as is text contrast (WCAG AA). Every unit test runs against a fixed clock.
+- **End-to-end tests** build the demo, load it in headless Chrome and check what renders: tabs and badges, the progress header, the foil on the finished project, the digest, and History.
+- **Behaviour tests** run the real page against a scriptable fake database ([`test/harness.js`](test/harness.js)) and act on it like a viewer: another chat resuming a card while it is being archived, a slow save that then fails, a live connection dropping, data arriving out of order, malformed docs, reopening and resending answers, and keyboard use of the tabs.
+
+The browser tests are skipped if Chrome isn't found. Set `CHROME=/path/to/chrome` to point at one.
 
 CI runs `npm run check` and `npm test` on every push to `main` and on pull requests.
 
@@ -92,7 +95,7 @@ CI runs `npm run check` and `npm test` on every push to `main` and on pull reque
 | [`demo/`](demo) | Made-up data, an in-memory database, and the demo build script |
 | [`docs/demo/`](docs/demo) | The built demo, served by GitHub Pages |
 | [`scripts/check.mjs`](scripts/check.mjs) | Dependency-free checks |
-| [`test/`](test) | Unit tests of the core, and end-to-end tests of the demo |
+| [`test/`](test) | Unit tests of the core, end-to-end tests of the demo, and behaviour tests with a fake database |
 | [`.github/workflows/`](.github/workflows) | CI: checks and tests on pushes to `main` and on pull requests |
 | [`docs/screenshots/`](docs/screenshots) | Screenshots taken from the demo, and how to retake them |
 

@@ -73,7 +73,7 @@ If the doc is missing, `set` it. Do not put status on the project doc.
 | `steps` | `[{title, state, size?, by?, note?, link?}]` | `state` uses the same values as `status`. `size`: `S` \| `M` \| `L` (see progress below). `by: "you"` marks a step only the user can do |
 | `blockers` | `[{text, severity}]` | `severity`: `high` \| `normal` |
 | `links` | `[{label, url}]` | |
-| `recent` | `[{text, url?, at}]` | Newest first, at most 15 |
+| `recent` | `[{text, url?, at}]` | Newest first, at most 5 (every update resends the whole list, so keep it short) |
 | `pr` | `{number, url, ci, state}` | The chat's main PR. `ci`: `pass` \| `fail` \| `running`; `state`: `open` \| `merged` \| `closed` |
 | `lastShipped` | `{text, url?, at}` | When something merges or deploys |
 
@@ -131,6 +131,7 @@ For secrets or keys, account or billing settings, sign-ins, approvals before mer
 | `answerState` | string | `answered` → `relayed` → `handled` |
 | `relayedAt` | ISO string | Written by the relaying agent |
 | `snoozedUntil` | ISO string \| null | Written by the page |
+| `previousAnswer` | `{choice, note, at}` | Written by the page when the user reopens an answered item. For reference only: it is not an instruction |
 | `updatedAt` | ISO string | Optional. The header's "Last update" uses it, else `createdAt` |
 
 When you complete a listed item yourself, set `done: true`, `doneAt`, `doneBy: "claude"`.
@@ -140,6 +141,8 @@ What the user can do on the page:
 - **Mark a `task` "Done".** The page sets `done: true`, `doneBy: "you"` together with the answer.
 - **Close** an approval or decision without answering. The page sets `done: true`, `doneBy: "you"` and no `answer`. Treat that as "no longer needed": stop waiting on it.
 - **Snooze** an item. It is hidden until `snoozedUntil`; nothing changes for agents.
+- **Reopen** a done item. The page clears `done`, `doneAt`, `doneBy`, `answer`, `answerState` and `relayedAt`, and keeps the old answer in `previousAnswer`. The item then needs a fresh answer.
+- **Send again** an answer stuck in `relayed` (see the answer relay below).
 
 ### `usage/u-<YYYYMMDDTHHMMZ>-<slug>`: plan usage readings
 
@@ -186,7 +189,7 @@ Age is counted from a stream's `updatedAt` (else `lastShipped.at`) and a need's 
 }
 ```
 
-The page archives once per load, only from server-confirmed (not cached) data, and renews a lease on `archive/_lock` before each month, so two open tabs don't run at the same time. If archiving fails (a read-only viewer, a full store), nothing is deleted and it retries on the next load. `items` is a map, so merge-updates from different tabs never overwrite each other. Summaries are written before the full docs are deleted.
+The page archives once per load, only from server-confirmed (not cached) data, and renews a lease on `archive/_lock` before each month, so two open tabs don't run at the same time. If archiving fails (a read-only viewer, a full store), nothing is deleted and it retries on the next load. `items` is a map, so merge-updates from different tabs never overwrite each other. Summaries are written before the full docs are deleted, and each full doc is read again just before its delete: if its status or timestamps changed since the plan (a chat resumed the stream, the user reopened the need), it is kept and its summary is set back to `null`, which History ignores.
 
 Agents never write to `archive`. So that a finished chat's card isn't archived early, only touch your stream while the chat is running. After 30 days a done stream may be gone: if you resume an old chat, `set` a fresh stream.
 
@@ -210,7 +213,9 @@ A message "Relay Board: answer waiting on needs/<id>" means: read that doc and c
 2. Send that session a message (`SendMessage` or `mcp__ccd_session_mgmt__send_message`): "Relay Board: answer waiting on needs/<id>. Read it from the board and continue."
 3. If the send fails, set `answerState` back to `"answered"` so another agent can try.
 
-Skip items without a `session`. Answered and relayed items are left out of the open counts and shown under "Answered, waiting on the chat", with "Sent to the chat … ago" once relayed. If one sits in `relayed` for a long time, the owning chat has likely stopped.
+Skip items without a `session`. Answered and relayed items are left out of the open counts and shown under "Answered, waiting on the chat", with "Sent to the chat … ago" once relayed.
+
+**Stuck answers.** If a relaying agent stops between claiming an answer and sending the message, or the owning chat never picks it up, the item stays `relayed`. After 2 hours without `handled`, the page says the chat hasn't confirmed and offers **Send again**, which sets `answerState` back to `"answered"` and clears `relayedAt`. The next agent that writes to the board then relays it again. Agents need no extra rule for this; the owning chat may receive the message twice, so act on an answer once (it is `handled` after the first time).
 
 ## What the page does on its own
 
@@ -223,4 +228,5 @@ These run in the browser, so agents never spend tokens on them:
 - Usage projections, the even-pace marker and the week curve.
 - Pruning of old usage readings.
 - Moving done items to History after 7 days and archiving them after 30 (see `archive` above).
-- Answering, snoozing, closing and reopening `needs` items.
+- Answering, snoozing, closing and reopening `needs` items, and sending stuck answers again.
+- Cleaning incoming docs: a malformed list entry (say, `null` in `steps`) is dropped rather than breaking the page, and the store's doc id always wins over an `id` field in the data.

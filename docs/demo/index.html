@@ -212,7 +212,7 @@
     --line-soft: #1f2630;
     --text: #e5e8ee;
     --muted: #8a94a3;
-    --faint: #5d6776;
+    --faint: #808a9a;
     --accent: #8ea8ff;
     --accent-ink: #0e1116;
     --accent-soft: rgba(142, 168, 255, 0.12);
@@ -286,6 +286,7 @@
   .crumb .dot { align-self: center; }
   .crumb .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .brand .sub { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand .sub.bad { color: var(--bad); }
 
   /* Progress of the selected project's live work: done / 100% − share waiting on you */
   .progress { margin-left: auto; align-self: center; display: inline-flex; align-items: center; gap: 10px; flex: none; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13px; }
@@ -438,6 +439,7 @@
   .answered { font-size: var(--fs-sm); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
   .answered .you { color: var(--ok); font-weight: 600; }
   .answered q { color: var(--text); }
+  .answered .stuck { color: var(--wait); }
   .needs-extra { gap: 4px 18px; }
   .snooze-menu { display: inline-flex; gap: 4px; }
   .collapser { background: none; border: 0; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; padding: 2px 0; text-align: left; }
@@ -557,7 +559,7 @@
 </header>
 <section class="usage" id="usage" aria-label="Claude plan usage" hidden></section>
 <nav class="tabs" id="tabs" role="tablist" aria-label="Projects"></nav>
-<main id="main"></main>
+<main id="main" role="tabpanel"></main>
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script>
@@ -582,6 +584,7 @@ globalThis.RelayCore = (() => {
   const USAGE_KEEP_DAYS = 15;               // plan-usage readings older than this are deleted
   const RATE_WINDOW = 36 * HOUR;            // usage projection: trailing window for the rate
   const MIN_ELAPSED = 12 * HOUR;            // usage projection: too early before this
+  const STUCK_AFTER = 2 * HOUR;             // an answer a chat claimed but never handled
 
   const STATES = ["active", "waiting", "blocked", "done", "idle", "todo"];
   const STATE_LABEL = { active: "Working", waiting: "Waiting", blocked: "Blocked", done: "Done", idle: "Idle", todo: "To do" };
@@ -595,6 +598,27 @@ globalThis.RelayCore = (() => {
   const clip = (v, n = 300) => (typeof v === "string" ? v.slice(0, n) : null);
   // One collection of the board data, always as an array.
   const rows = (data, name) => (data && Array.isArray(data[name]) ? data[name] : []);
+  const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+  // ---- Incoming docs --------------------------------------------------
+  // Docs are written by many agents and tabs. Clean each one on the way in so a single malformed
+  // doc can't break the page: lists keep only well-formed entries, and the store's doc id always
+  // wins over an `id` field inside the data. Returns null for a doc that isn't an object at all.
+  const objects = (v) => (Array.isArray(v) ? v.filter(isObj) : []);
+  const texts = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" || typeof x === "number").map(String) : []);
+  function normalize(name, id, raw) {
+    if (!isObj(raw)) return null;
+    const d = { ...raw, id };
+    if (name === "streams" || name === "projects") {
+      for (const k of ["steps", "blockers", "links", "recent"]) if (k in d) d[k] = objects(d[k]);
+    }
+    if (name === "needs") {
+      for (const k of ["steps", "options"]) if (k in d) d[k] = texts(d[k]);
+      // A bare string or number is read as the choice; anything else that isn't an object means no answer.
+      if (!isObj(d.answer)) d.answer = (typeof d.answer === "string" && d.answer.trim()) || typeof d.answer === "number" ? { choice: String(d.answer) } : null;
+    }
+    return d;
+  }
 
   function ago(iso, now) {
     const t = ts(iso);
@@ -676,6 +700,13 @@ globalThis.RelayCore = (() => {
   const openNeeds = (data, slug) => rows(data, "needs").filter((n) => !n.done && (!slug || n.project === slug));
   // Items still waiting on the user: open, not snoozed and not answered (whatever the answer's relay state).
   const actionable = (data, slug, now) => openNeeds(data, slug).filter((n) => !isSnoozed(n, now) && !answerState(n));
+  // A chat claimed the answer ("relayed") but hasn't confirmed it for a while: it may have stopped
+  // before passing it on. The page then offers to send it again.
+  // Without any valid timestamp there is no way to tell, so it is not flagged.
+  function relayStuck(n, now) {
+    const since = ts(n.relayedAt) || ts(n.answer?.at);
+    return !n.done && answerState(n) === "relayed" && since > 0 && now - since > STUCK_AFTER;
+  }
   // The groups of the "Needs you" panel, for one project or (slug null) all of them.
   function needsGroups(data, slug, now) {
     const items = rows(data, "needs").filter((n) => !slug || n.project === slug);
@@ -766,22 +797,28 @@ globalThis.RelayCore = (() => {
     }
     return out.sort((a, b) => ts(b.finishedAt) - ts(a.finishedAt));
   }
+  // The fields that made a card archivable. The page re-reads each card just before deleting it
+  // and keeps it if this changed meanwhile (another chat resumed the stream or reopened the need).
+  const archiveStamp = (kind, d) => (!isObj(d) ? null
+    : JSON.stringify(kind === "stream" ? [d.status, d.updatedAt ?? null] : [d.done, d.doneAt ?? null, d.updatedAt ?? null, d.answerState ?? null]));
   // What to archive: done items over 30 days old, grouped per project and month (UTC). Each group
-  // is one archive doc (`archive/<id>`) and the full docs to delete once it is written.
+  // is one archive doc (`archive/<id>`) and the cards to delete once it is written.
   function planArchive(data, now) {
     const monthOf = (iso) => new Date(ts(iso)).toISOString().slice(0, 7);
     const groups = new Map();
-    const add = (slug, iso, key, entry, path) => {
+    const add = (slug, iso, key, entry, kind, doc) => {
       if (!slug || !/^[\w.-]+$/.test(slug)) return;
       const id = `${slug}--${monthOf(iso)}`;
-      if (!groups.has(id)) groups.set(id, { id, slug, month: monthOf(iso), items: {}, paths: [] });
-      const g = groups.get(id); g.items[key] = entry; g.paths.push(path);
+      if (!groups.has(id)) groups.set(id, { id, slug, month: monthOf(iso), items: {}, cards: [] });
+      const g = groups.get(id);
+      g.items[key] = entry;
+      g.cards.push({ kind, key, path: `${kind}s/${doc.id}`, stamp: archiveStamp(kind, doc) });
     };
     for (const s of rows(data, "streams")) {
-      if (s.status === "done" && isOld(streamDoneAt(s), now, ARCHIVE_DAYS)) add(s.project, streamDoneAt(s), itemKey("stream", s.id), streamEntry(s), `streams/${s.id}`);
+      if (s.status === "done" && isOld(streamDoneAt(s), now, ARCHIVE_DAYS)) add(s.project, streamDoneAt(s), itemKey("stream", s.id), streamEntry(s), "stream", s);
     }
     for (const n of rows(data, "needs")) {
-      if (n.done && isOld(needDoneAt(n), now, ARCHIVE_DAYS)) add(n.project, needDoneAt(n), itemKey("need", n.id), needEntry(n), `needs/${n.id}`);
+      if (n.done && isOld(needDoneAt(n), now, ARCHIVE_DAYS)) add(n.project, needDoneAt(n), itemKey("need", n.id), needEntry(n), "need", n);
     }
     return [...groups.values()];
   }
@@ -897,16 +934,16 @@ globalThis.RelayCore = (() => {
   return {
     // tuning
     MINUTE, HOUR, DAY, WEEK, TICK, QUIET_AFTER, STOPPED_AFTER, WAITING_QUIET_AFTER, DIGEST_MIN_AGE, FEED_PAGE,
-    SHOW_DAYS, ARCHIVE_DAYS, ARCHIVE_LEASE_MS, USAGE_KEEP_DAYS, RATE_WINDOW, MIN_ELAPSED,
+    SHOW_DAYS, ARCHIVE_DAYS, ARCHIVE_LEASE_MS, USAGE_KEEP_DAYS, RATE_WINDOW, MIN_ELAPSED, STUCK_AFTER,
     STATES, STATE_LABEL, SIZE_WEIGHT,
-    // basics
-    st, safeUrl, appUrl, ts, num, clip, ago, span,
+    // basics and incoming docs
+    st, safeUrl, appUrl, ts, num, clip, ago, span, normalize,
     // projects and streams
     streamsFor, allProjectSlugs, projectInfo, orderedProjects, quietness,
     // needs and progress
-    isSnoozed, answerState, openNeeds, actionable, needsGroups, progressFor, progressColor,
+    isSnoozed, answerState, openNeeds, actionable, relayStuck, needsGroups, progressFor, progressColor,
     // history and archiving
-    isOld, hash, itemKey, streamDoneAt, needDoneAt, streamEntry, needEntry, historyFor, planArchive,
+    isOld, hash, itemKey, streamDoneAt, needDoneAt, streamEntry, needEntry, historyFor, archiveStamp, planArchive,
     // plan usage
     readings, valueAt, projectWeek, staleReadings,
     // digest
@@ -921,14 +958,15 @@ globalThis.RelayCore = (() => {
 (() => {
   const {
     MINUTE, HOUR, DAY, WEEK, TICK, DIGEST_MIN_AGE, FEED_PAGE, SHOW_DAYS, ARCHIVE_LEASE_MS, STATE_LABEL,
-    st, safeUrl, appUrl, ts, num, ago, span,
-    orderedProjects, quietness, isSnoozed, answerState, actionable, needsGroups, progressFor, progressColor,
-    isOld, streamDoneAt, historyFor, planArchive, projectWeek, staleReadings, allActivity, digestData,
+    st, safeUrl, appUrl, ts, num, ago, span, normalize,
+    orderedProjects, quietness, isSnoozed, answerState, actionable, relayStuck, needsGroups, progressFor, progressColor,
+    isOld, streamDoneAt, historyFor, archiveStamp, planArchive, projectWeek, staleReadings, allActivity, digestData,
   } = globalThis.RelayCore;
   const state = {
-    projects: [], streams: [], needs: [], usage: [], archive: [], fresh: {},
+    projects: [], streams: [], needs: [], usage: [], archive: [],
+    loaded: {}, fresh: {}, paused: false,
     tab: "overview", db: null, ready: false,
-    open: {}, drafts: {}, feedFilter: "all", feedLimit: FEED_PAGE,
+    open: {}, drafts: {}, saving: {}, failed: {}, feedFilter: "all", feedLimit: FEED_PAGE,
   };
 
   // ---- Helpers --------------------------------------------------------
@@ -948,6 +986,14 @@ globalThis.RelayCore = (() => {
   };
   const link = (label, url) => (safeUrl(url) ? el("a", { href: url, target: "_blank", rel: "noopener" }, label) : el("span", {}, label));
   const nowIso = () => new Date().toISOString();
+  // Render one card without letting a bad doc take down the whole page: on an error, show a small
+  // placeholder in its place instead.
+  const safely = (fn, tag, what) => (x, ...rest) => {
+    try { return fn(x, ...rest); } catch (e) {
+      console.warn(`Relay Board: couldn't show ${what} ${x?.id ?? ""}`, e);
+      return el(tag, { class: "notice" }, `This ${what} couldn't be shown (${x?.id || "no id"}).`);
+    }
+  };
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch {} },
@@ -1000,17 +1046,20 @@ globalThis.RelayCore = (() => {
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, 4500);
   }
-  async function write(path, data, okMsg) {
-    if (!state.db) return false;
+  // Saves a change and returns null, or the reason it failed (also shown as a toast).
+  async function save(path, data, okMsg) {
+    if (!state.db) return "Live data isn't available in this view.";
     try {
       await state.db.doc(path).update(data);
       if (okMsg) showToast(okMsg);
-      return true;
+      return null;
     } catch (e) {
-      showToast(e?.code === "invalid_argument" ? "You can view this board but not change it." : "Couldn't save that. Try again in a moment.");
-      return false;
+      const why = e?.code === "invalid_argument" ? "You can view this board but not change it." : "That didn't save. Try again in a moment.";
+      showToast(why);
+      return why;
     }
   }
+  const write = async (path, data, okMsg) => !(await save(path, data, okMsg));
 
   // ---- Needs ----------------------------------------------------------
   const projectName = (slug) => state.projects.find((p) => p.id === slug)?.name || slug;
@@ -1020,7 +1069,20 @@ globalThis.RelayCore = (() => {
   const KIND_LABEL = { approval: "Approval", decision: "Decision", task: "Manual task" };
   const GROUP_LABEL = { approval: "Approvals", decision: "Decisions", task: "Tasks for you" };
 
-  function answerNeed(n, choice) {
+  // Every change to a need goes through here: one save at a time per item, its buttons disabled
+  // while it saves, and a failure shown on the item itself (not only in the toast).
+  async function needWrite(n, patch, okMsg) {
+    if (state.saving[n.id]) return false;
+    state.saving[n.id] = true;
+    delete state.failed[n.id];
+    render();
+    const why = await save(`needs/${n.id}`, patch, okMsg);
+    delete state.saving[n.id];
+    if (why) state.failed[n.id] = why;
+    render();
+    return !why;
+  }
+  async function answerNeed(n, choice) {
     const note = (state.drafts[n.id] || "").trim();
     if (!choice && !note) { showToast("Write an answer first."); return; }
     const patch = {
@@ -1028,16 +1090,22 @@ globalThis.RelayCore = (() => {
       answerState: "answered",
     };
     if (n.kind === "task" && choice === "Done") Object.assign(patch, { done: true, doneAt: nowIso(), doneBy: "you" });
-    write(`needs/${n.id}`, patch, "Saved. The chat picks it up at the next board check.").then((ok) => {
-      if (ok) { delete state.drafts[n.id]; state.open[`reply-${n.id}`] = false; }
-    });
+    if (await needWrite(n, patch, "Saved. The chat picks it up at the next board check.")) {
+      delete state.drafts[n.id]; state.open[`reply-${n.id}`] = false; render();
+    }
   }
-  const changeAnswer = (n) => write(`needs/${n.id}`, { answer: null, answerState: null });
-  const closeNeed = (n) => write(`needs/${n.id}`, { done: true, doneAt: nowIso(), doneBy: "you" }, "Marked done.");
-  const reopenNeed = (n) => write(`needs/${n.id}`, { done: false, doneAt: null, doneBy: null });
+  const changeAnswer = (n) => needWrite(n, { answer: null, answerState: null });
+  // Put a stuck answer back to "answered" so the next chat that checks the board relays it again.
+  const sendAgain = (n) => needWrite(n, { answerState: "answered", relayedAt: null }, "The next chat to check the board will pass it on.");
+  const closeNeed = (n) => needWrite(n, { done: true, doneAt: nowIso(), doneBy: "you" }, "Marked done.");
+  // Reopening starts a fresh round: the old answer is kept for reference but no longer counts.
+  const reopenNeed = (n) => needWrite(n, {
+    done: false, doneAt: null, doneBy: null, answer: null, answerState: null, relayedAt: null,
+    ...(n.answer ? { previousAnswer: n.answer } : {}),
+  });
   function snooze(n, until) {
-    write(`needs/${n.id}`, { snoozedUntil: until ? new Date(until).toISOString() : null }, until ? `Snoozed until ${whenLabel(until)}.` : "Back in the list.");
     state.open[`snooze-${n.id}`] = false;
+    needWrite(n, { snoozedUntil: until ? new Date(until).toISOString() : null }, until ? `Snoozed until ${whenLabel(until)}.` : "Back in the list.");
   }
   const tomorrowMorning = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0); return d.getTime(); };
 
@@ -1080,16 +1148,19 @@ globalThis.RelayCore = (() => {
   function answeredLine(n) {
     const a = n.answer || {};
     const s = answerState(n);
-    const status = s === "handled" ? "Chat handled it" : s === "relayed" ? `Sent to the chat ${ago(n.relayedAt, Date.now())}` : "Waiting for a chat to pick it up";
+    const stuck = relayStuck(n, Date.now());
+    const sent = ts(n.relayedAt) ? `Sent to the chat ${ago(n.relayedAt, Date.now())}` : "Sent to the chat";
+    const status = s === "handled" ? "Chat handled it" : stuck ? `${sent}, but it hasn't confirmed` : s === "relayed" ? sent : "Waiting for a chat to pick it up";
     return el("div", { class: "answered" },
       el("span", { class: "you" }, "You answered"),
       a.choice ? el("strong", {}, a.choice) : null,
       a.note ? el("q", {}, a.note) : null,
-      el("span", { class: "dim-text" }, `· ${status}`),
-      s === "answered" ? el("button", { type: "button", class: "btn ghost", onclick: () => changeAnswer(n) }, "Change") : null);
+      el("span", { class: stuck ? "stuck" : "dim-text" }, `· ${status}`),
+      s === "answered" ? el("button", { type: "button", class: "btn ghost", onclick: () => changeAnswer(n) }, "Change") : null,
+      stuck ? el("button", { type: "button", class: "btn", onclick: () => sendAgain(n) }, "Send again") : null);
   }
 
-  function needItem(n, showProject) {
+  function renderNeedItem(n, showProject) {
     const li = el("li", { class: `need${n.done ? " done" : ""}` });
     const age = Date.now() - ts(n.createdAt);
     li.append(el("div", { class: "need-head" },
@@ -1103,6 +1174,8 @@ globalThis.RelayCore = (() => {
       n.link ? link("Open", n.link) : null));
     if (n.why) li.append(el("div", { class: "need-why" }, n.why));
     if (Array.isArray(n.steps) && n.steps.length) li.append(el("ol", { class: "need-steps" }, n.steps.map((s) => el("li", {}, s))));
+    const prev = !n.done && !n.answer && n.previousAnswer;
+    if (prev && (prev.choice || prev.note)) li.append(el("div", { class: "dim-text need-why" }, "Earlier answer, before you reopened it: ", [prev.choice, prev.note].filter(Boolean).join(" · ")));
     if (n.done) {
       if (n.answer) li.append(answeredLine(n));
       li.append(el("div", { class: "btn-row" }, el("button", { type: "button", class: "btn ghost", onclick: () => reopenNeed(n) }, "Reopen")));
@@ -1113,8 +1186,17 @@ globalThis.RelayCore = (() => {
     } else {
       li.append(answerControls(n));
     }
+    if (state.saving[n.id]) {
+      for (const b of li.querySelectorAll(".btn")) b.disabled = true;
+      li.setAttribute("aria-busy", "true");
+      li.append(el("div", { class: "dim-text need-why", role: "status" }, "Saving…"));
+    } else if (state.failed[n.id]) {
+      li.append(el("div", { class: "callout bad", role: "alert" }, state.failed[n.id]));
+    }
     return li;
   }
+
+  const needItem = safely(renderNeedItem, "li", "item");
 
   function collapsible(key, label, items, showProject) {
     if (!items.length) return null;
@@ -1286,7 +1368,7 @@ globalThis.RelayCore = (() => {
       el("span", { class: "dot state" }),
       el("span", {}, p.streams.length > 1 ? el("span", { class: "st-title" }, `${x.title}: `) : null, x.currentTask || "No active task"))));
   }
-  function projectCard(p) {
+  function renderProjectCard(p) {
     const s = st(p.status);
     const shown = (p.liveStreams.length ? p.liveStreams : p.streams.filter((x) => x.legacy || !isOld(streamDoneAt(x), Date.now()))).slice(0, 3);
     const quiet = p.streams.map((x) => quietness(x, Date.now())).filter(Boolean);
@@ -1306,6 +1388,8 @@ globalThis.RelayCore = (() => {
         el("span", { class: "badges" }, prs.map(prChip), p.liveStreams.length > 1 ? el("span", { class: "chip kind" }, `${p.liveStreams.length} chats`) : null),
         el("span", {}, needCount ? `${needCount} need you · ` : "", timeEl(p.updatedAt))));
   }
+
+  const projectCard = safely(renderProjectCard, "article", "project");
 
   function overview() {
     const frag = document.createDocumentFragment();
@@ -1327,7 +1411,7 @@ globalThis.RelayCore = (() => {
   }
 
   // ---- Project view ---------------------------------------------------
-  function streamPanel(s) {
+  function renderStreamPanel(s) {
     const ss = st(s.status);
     const q = quietness(s, Date.now());
     const steps = Array.isArray(s.steps) ? s.steps : [];
@@ -1372,6 +1456,8 @@ globalThis.RelayCore = (() => {
     panel.append(cols);
     return panel;
   }
+
+  const streamPanel = safely(renderStreamPanel, "section", "workstream");
 
   function projectView(p) {
     const frag = document.createDocumentFragment();
@@ -1457,8 +1543,19 @@ globalThis.RelayCore = (() => {
         const snap = await ref.get();
         if (snap.exists) await ref.update({ items: g.items, updatedAt: nowIso() });
         else await ref.set({ project: g.slug, month: g.month, items: g.items, updatedAt: nowIso() });
-        // Delete the full cards only after their summaries are safely stored.
-        for (const path of g.paths) await state.db.doc(path).delete();
+        // Delete the full cards only after their summaries are safely stored, and only cards that
+        // are still exactly as planned. A card another chat changed meanwhile (resumed, reopened)
+        // stays, and its summary is taken out of History again. The store has no conditional
+        // delete, so a write landing between this read and the delete could still be lost; the
+        // window is a single round trip, once per page load, for cards untouched for 30 days.
+        const unarchived = {};
+        for (const c of g.cards) {
+          const cur = await state.db.doc(c.path).get();
+          if (!cur.exists) continue;
+          if (archiveStamp(c.kind, cur.data()) === c.stamp) await state.db.doc(c.path).delete();
+          else unarchived[c.key] = null;
+        }
+        if (Object.keys(unarchived).length) await ref.update({ items: unarchived, updatedAt: nowIso() });
       }
     } catch (e) { console.warn("Relay Board: archiving skipped, will retry on next load", e?.code || e); }
   }
@@ -1588,7 +1685,12 @@ globalThis.RelayCore = (() => {
   function renderTabs(projects) {
     const nav = $("tabs");
     nav.replaceChildren();
-    const mk = (id, label, extra) => el("button", { type: "button", role: "tab", "aria-selected": String(state.tab === id), onclick: () => setTab(id) }, extra, label);
+    const selected = projects.some((p) => p.id === state.tab) ? state.tab : "overview";
+    // Roving focus: only the selected tab is in the Tab order; arrow keys move between tabs.
+    const mk = (id, label, extra) => el("button", {
+      type: "button", role: "tab", id: `tab-${id}`, "data-tab": id, "aria-controls": "main",
+      "aria-selected": String(selected === id), tabindex: selected === id ? "0" : "-1", onclick: () => setTab(id),
+    }, extra, label);
     const b = mk("overview", "Overview", null);
     const allOpen = actionable(state, null, Date.now()).length;
     if (allOpen) b.append(el("span", { class: "count", title: "Open items that need you" }, allOpen));
@@ -1627,11 +1729,13 @@ globalThis.RelayCore = (() => {
 
   function render() {
     const projects = orderedProjects(state, Date.now());
-    if (state.tab !== "overview" && !projects.some((p) => p.id === state.tab) && projects.length) state.tab = "overview";
+    // A linked project may simply not have arrived yet; only give up on it once both collections
+    // that define projects have loaded.
+    if (state.tab !== "overview" && state.loaded.projects && state.loaded.streams && !projects.some((p) => p.id === state.tab)) state.tab = "overview";
+    const focusId = document.activeElement?.id;
     renderTabs(projects);
     renderUsage();
     const main = $("main");
-    const focusId = document.activeElement?.id;
     main.replaceChildren();
     if (!state.db && state.ready) {
       main.append(el("p", { class: "notice" }, "Live data isn't available in this view. Open the board on claude.ai to see your projects."));
@@ -1647,6 +1751,7 @@ globalThis.RelayCore = (() => {
       el("span", { class: "name" }, p.name),
     ] : []));
     renderProgress(p);
+    main.setAttribute("aria-labelledby", `tab-${p ? p.id : "overview"}`);
     main.append(p ? projectView(p) : overview());
     // Re-rendering replaces every node; put focus back where it was.
     const f = focusId && document.getElementById(focusId);
@@ -1655,7 +1760,10 @@ globalThis.RelayCore = (() => {
       if (f.tagName === "TEXTAREA") f.setSelectionRange(f.value.length, f.value.length);
     }
     const latest = [...projects.map((x) => x.updatedAt), ...state.needs.map((x) => x.updatedAt || x.createdAt)].filter(Boolean).sort().pop();
-    $("sub").textContent = state.db ? (latest ? `Last update ${ago(latest, Date.now())}` : "Live") : "Connecting…";
+    const sub = $("sub");
+    sub.classList.toggle("bad", state.paused);
+    sub.textContent = state.paused ? "Live updates paused. Reload to reconnect."
+      : state.db ? (latest ? `Last update ${ago(latest, Date.now())}` : "Live") : "Connecting…";
   }
 
   // Avoid re-rendering under the cursor while someone is typing an answer.
@@ -1669,6 +1777,18 @@ globalThis.RelayCore = (() => {
   }
 
   window.addEventListener("hashchange", () => { state.tab = readTab(); render(); });
+  // Keyboard: Left/Right move to the previous/next tab and select it, Home/End jump to the ends.
+  $("tabs").addEventListener("keydown", (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return; // leave browser shortcuts alone
+    const all = [...$("tabs").querySelectorAll('[role="tab"]')];
+    const i = all.indexOf(document.activeElement);
+    const j = i < 0 ? undefined : { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: all.length - 1 }[e.key];
+    if (j === undefined) return;
+    e.preventDefault();
+    const target = all[(j + all.length) % all.length];
+    setTab(target.dataset.tab);
+    document.getElementById(target.id)?.focus();
+  });
   setInterval(scheduleRender, TICK);
   render();
 
@@ -1679,9 +1799,17 @@ globalThis.RelayCore = (() => {
     if (!db) { render(); return; }
     state.db = db;
     $("pulse").classList.add("live");
-    const onErr = () => { $("pulse").classList.remove("live"); $("sub").textContent = "Live updates paused. Reload to reconnect."; };
+    // A listener that stops is dead for this page load, so the paused state sticks until a reload.
+    const onErr = (e) => {
+      console.warn("Relay Board: live updates stopped", e?.code || e);
+      state.paused = true;
+      $("pulse").classList.remove("live");
+      scheduleRender();
+    };
+    const docs = (name, snap) => snap.docs.filter((d) => d.exists).map((d) => normalize(name, d.id, d.data())).filter(Boolean);
     const sub = (name, apply) => db.collection(name).onSnapshot((snap) => {
-      apply(snap.docs.filter((d) => d.exists).map((d) => ({ id: d.id, ...d.data() })));
+      apply(docs(name, snap));
+      state.loaded[name] = true;
       // Only archive from server-confirmed data, never from a cached snapshot.
       if (!snap.metadata?.fromCache) state.fresh[name] = true;
       scheduleRender();
@@ -1689,13 +1817,18 @@ globalThis.RelayCore = (() => {
     }, onErr);
     sub("projects", (rows) => { state.projects = rows; });
     sub("streams", (rows) => { state.streams = rows; });
-    sub("needs", (rows) => { state.needs = rows; });
+    sub("needs", (rows) => {
+      // A failure note is about the version the viewer tried to change; drop it once that changes.
+      const before = new Map(state.needs.map((n) => [n.id, JSON.stringify(n)]));
+      for (const n of rows) if (state.failed[n.id] && before.get(n.id) !== JSON.stringify(n)) delete state.failed[n.id];
+      state.needs = rows;
+    });
     sub("archive", (rows) => { state.archive = rows.filter((r) => r.id !== "_lock"); });
     db.collection("usage").onSnapshot((snap) => {
-      state.usage = snap.docs.filter((d) => d.exists).map((d) => ({ id: d.id, ...d.data() }));
+      state.usage = docs("usage", snap);
       renderUsage();
       pruneUsage();
-    }, () => {});
+    }, onErr);
   })();
 })();
 </script>
