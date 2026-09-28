@@ -14,6 +14,7 @@ A live dashboard for following many Claude Code chats across many projects from 
 - **Plan usage:** weekly (all models and Fable) and 5-hour bars, with an even-pace marker and a projection to the weekly reset.
 - **Quiet-chat detection:** a chat that says it's working but hasn't written for a while is flagged, and so is one waiting too long on something other than you.
 - **"Since you last looked"** digest and an activity feed.
+- **Foldable sections:** click any section header (Needs you, Projects, Activity, Workstreams, History) to fold it. The board remembers your choice in this browser.
 - **History:** done items fold away at once, move to a per-project History section after 7 days, and after 30 days are squeezed into one archive record per project and month. You can look back as far as you like, and the store never fills up.
 
 ![Project view: progress in the header, workstreams with sized steps and "You" steps](docs/screenshots/project.png)
@@ -44,13 +45,13 @@ To take the screenshots again, point `CHROME` at your Chrome binary (`google-chr
 
 ```bash
 DEMO="file://$(pwd -W 2>/dev/null || pwd)/demo/board-demo.html"
-shot() { "$CHROME" --headless=new --hide-scrollbars --lang=en-US --window-size="$2" --virtual-time-budget=4000 --user-data-dir="${TMPDIR:-/tmp}/relay-shot" --screenshot="$PWD/docs/screenshots/$1.png" "$DEMO$3"; }
+shot() { "$CHROME" --headless=new --hide-scrollbars --lang=en-US --window-size="$2" --virtual-time-budget=4000 --user-data-dir="$(mktemp -d)" --screenshot="$PWD/docs/screenshots/$1.png" "$DEMO$3"; }
 shot overview 1280,1500 ""
 shot project  1280,1500 "#p=acme-storefront"
-shot history  1280,560  "?open=older&only=history#p=acme-storefront"
+shot history  1280,560  "?open=history&only=history#p=acme-storefront"
 ```
 
-The separate `--user-data-dir` lets this run while your normal Chrome is open.
+A fresh `--user-data-dir` each time lets this run while your normal Chrome is open, and starts with every section in its default open or folded state.
 
 ## Publish a change to your own board
 

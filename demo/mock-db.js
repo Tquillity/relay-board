@@ -146,7 +146,7 @@
   };
   window.claude = { use: async (name) => (name === "db" ? db : null) };
 
-  // For screenshots: ?open=older,finished expands the matching "Show …" sections, and
+  // For screenshots: ?open=history,finished unfolds matching section headers and "Show …" lists, and
   // ?only=history hides the other sections of a project view.
   const q = new URLSearchParams(location.search);
   if (q.get("open")) {
@@ -154,6 +154,9 @@
       for (const word of q.get("open").split(",")) {
         const re = new RegExp(`^Show .*${word}`, "i");
         [...document.querySelectorAll(".collapser")].filter((b) => re.test(b.textContent)).forEach((b) => b.click());
+        // Folded section headers, e.g. ?open=history
+        [...document.querySelectorAll(".eyebrow-btn[aria-expanded=false]")]
+          .filter((b) => b.textContent.replace(/^\W+/, "").toLowerCase().startsWith(word.toLowerCase())).forEach((b) => b.click());
       }
     }, 400);
   }

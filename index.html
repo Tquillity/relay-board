@@ -168,6 +168,14 @@
     display: flex; align-items: center; gap: 10px; margin: 0 0 var(--row);
   }
   .eyebrow .rule { flex: 1; height: 1px; background: var(--line-soft); }
+  /* Section headers fold their section; the choice is remembered per browser */
+  .eyebrow-btn { all: unset; box-sizing: border-box; flex: 1; display: flex; align-items: center; gap: 10px; cursor: pointer; border-radius: 4px; }
+  .eyebrow-btn:hover { color: var(--muted); }
+  .eyebrow-btn:hover .rule { background: var(--line); }
+  .eyebrow-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .eyebrow .chev { display: inline-block; width: 10px; transition: transform 0.15s ease; }
+  .eyebrow-btn[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+  @media (prefers-reduced-motion: reduce) { .eyebrow .chev { transition: none; } }
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--pad); }
 
   .btn {
@@ -360,6 +368,31 @@
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch {} },
   };
+
+  // Fold/unfold choices (sections, "Show N ..." lists) survive reloads. Drafts and menus don't.
+  const OPEN_KEY = "relay-open";
+  const PERSIST = /^(sec:|finished-|history-|snoozed-|done-)/;
+  try {
+    const saved = JSON.parse(store.get(OPEN_KEY) || "{}");
+    if (saved && typeof saved === "object") for (const [k, v] of Object.entries(saved)) if (PERSIST.test(k) && typeof v === "boolean") state.open[k] = v;
+  } catch {}
+  const isOpen = (key, def = false) => (Object.hasOwn(state.open, key) ? !!state.open[key] : def);
+  const toggleId = (key) => `tg-${key.replace(/[^\w-]/g, "-")}`;
+  function toggleOpen(key, def = false) {
+    state.open[key] = !isOpen(key, def);
+    const keep = Object.fromEntries(Object.entries(state.open).filter(([k]) => PERSIST.test(k)));
+    store.set(OPEN_KEY, JSON.stringify(keep));
+    render();
+  }
+  // A foldable section header: chevron, title, rule and count, all one button.
+  function sectionHead(key, id, title, count, def = true) {
+    const open = isOpen(key, def);
+    const h = el("h2", { class: "eyebrow", id },
+      el("button", { type: "button", class: "eyebrow-btn", id: toggleId(key), "aria-expanded": String(open), onclick: () => toggleOpen(key, def) },
+        el("span", { class: "chev", "aria-hidden": "true" }, "\u25BE"), title, el("span", { class: "rule" }),
+        count != null ? el("span", { class: "mono" }, count) : null));
+    return { h, open };
+  }
 
   function ago(iso) {
     const t = ts(iso);
@@ -603,8 +636,8 @@
   function collapsible(key, label, items, showProject) {
     if (!items.length) return null;
     const wrap = el("div", {});
-    const open = !!state.open[key];
-    wrap.append(el("button", { type: "button", class: "collapser", "aria-expanded": String(open), onclick: () => { state.open[key] = !open; render(); } },
+    const open = isOpen(key);
+    wrap.append(el("button", { type: "button", class: "collapser", id: toggleId(key), "aria-expanded": String(open), onclick: () => toggleOpen(key) },
       `${open ? "Hide" : "Show"} ${items.length} ${label}`));
     if (open) wrap.append(el("ul", { class: "needs-list" }, items.map((n) => needItem(n, showProject))));
     return wrap;
@@ -619,7 +652,9 @@
     const snoozed = open.filter(isSnoozed).sort((a, b) => ts(a.snoozedUntil) - ts(b.snoozedUntil));
     const done = items.filter((n) => n.done && !isOld(needDoneAt(n))).sort((a, b) => ts(b.doneAt) - ts(a.doneAt));
     const sec = el("section", { "aria-labelledby": `needs-h-${slug || "all"}` });
-    sec.append(el("h2", { class: "eyebrow", id: `needs-h-${slug || "all"}` }, "Needs you", el("span", { class: "rule" }), el("span", { class: "mono" }, `${act.length} open`)));
+    const head = sectionHead(`sec:needs:${slug || "all"}`, `needs-h-${slug || "all"}`, "Needs you", `${act.length} open`);
+    sec.append(head.h);
+    if (!head.open) return sec;
     const panel = el("div", { class: "panel needs" });
     if (!act.length) panel.append(el("p", { class: "empty" }, "Nothing is waiting on you right now."));
     for (const kind of ["approval", "decision", "task"]) {
@@ -686,7 +721,9 @@
     const all = allActivity();
     if (!all.length) return null;
     const sec = el("section", { "aria-labelledby": "act-h" });
-    sec.append(el("h2", { class: "eyebrow", id: "act-h" }, "Activity", el("span", { class: "rule" })));
+    const head = sectionHead("sec:activity", "act-h", "Activity", null);
+    sec.append(head.h);
+    if (!head.open) return sec;
     const panel = el("div", { class: "panel" });
     const slugs = [...new Set(all.map((r) => r.project))];
     const filters = el("div", { class: "filters", role: "group", "aria-label": "Filter activity by project" },
@@ -757,9 +794,12 @@
     frag.append(needsPanel(null));
     const projects = orderedProjects();
     const sec = el("section", { "aria-labelledby": "proj-h" });
-    sec.append(el("h2", { class: "eyebrow", id: "proj-h" }, "Projects", el("span", { class: "rule" }), el("span", { class: "mono" }, `${projects.length}`)));
-    if (!projects.length) sec.append(el("p", { class: "notice" }, "No projects yet. The first agent to work on a project adds its tab here."));
-    sec.append(el("div", { class: "grid" }, projects.map(projectCard)));
+    const head = sectionHead("sec:projects", "proj-h", "Projects", `${projects.length}`);
+    sec.append(head.h);
+    if (head.open) {
+      if (!projects.length) sec.append(el("p", { class: "notice" }, "No projects yet. The first agent to work on a project adds its tab here."));
+      sec.append(el("div", { class: "grid" }, projects.map(projectCard)));
+    }
     frag.append(sec);
     const act = activityPanel();
     if (act) frag.append(act);
@@ -829,15 +869,19 @@
     frag.append(needsPanel(p.id));
     const live = p.streams.filter((x) => x.status !== "done");
     const finished = p.streams.filter((x) => x.status === "done" && (x.legacy || !isOld(streamDoneAt(x))));
-    const sec = el("section", { "aria-label": "Workstreams", style: "display:flex;flex-direction:column;gap:var(--gap)" });
-    sec.append(el("h2", { class: "eyebrow" }, "Workstreams", el("span", { class: "rule" }), el("span", { class: "mono" }, `${live.length} open`)));
-    if (!p.streams.length) sec.append(el("p", { class: "notice" }, "No workstreams yet."));
-    live.forEach((x) => sec.append(streamPanel(x)));
-    if (finished.length) {
-      const key = `finished-${p.id}`;
-      sec.append(el("button", { type: "button", class: "collapser", "aria-expanded": String(!!state.open[key]), onclick: () => { state.open[key] = !state.open[key]; render(); } },
-        `${state.open[key] ? "Hide" : "Show"} ${finished.length} finished workstream${finished.length === 1 ? "" : "s"}`));
-      if (state.open[key]) finished.forEach((x) => sec.append(streamPanel(x)));
+    const sec = el("section", { "aria-labelledby": `ws-h-${p.id}`, style: "display:flex;flex-direction:column;gap:var(--gap)" });
+    const head = sectionHead(`sec:workstreams:${p.id}`, `ws-h-${p.id}`, "Workstreams", `${live.length} open`);
+    sec.append(head.h);
+    if (head.open) {
+      if (!p.streams.length) sec.append(el("p", { class: "notice" }, "No workstreams yet."));
+      live.forEach((x) => sec.append(streamPanel(x)));
+      if (finished.length) {
+        const key = `finished-${p.id}`;
+        const open = isOpen(key);
+        sec.append(el("button", { type: "button", class: "collapser", id: toggleId(key), "aria-expanded": String(open), onclick: () => toggleOpen(key) },
+          `${open ? "Hide" : "Show"} ${finished.length} finished workstream${finished.length === 1 ? "" : "s"}`));
+        if (open) finished.forEach((x) => sec.append(streamPanel(x)));
+      }
     }
     frag.append(sec);
     const hist = historyPanel(p);
@@ -889,29 +933,26 @@
   function historyPanel(p) {
     const rows = historyFor(p.id);
     if (!rows.length) return null;
-    const key = `history-${p.id}`;
-    const open = !!state.open[key];
     const sec = el("section", { "aria-labelledby": `hist-h-${p.id}` });
-    sec.append(el("h2", { class: "eyebrow", id: `hist-h-${p.id}` }, "History", el("span", { class: "rule" }), el("span", { class: "mono" }, `${rows.length}`)));
+    const head = sectionHead(`history-${p.id}`, `hist-h-${p.id}`, "History", `${rows.length}`, false);
+    sec.append(head.h);
+    if (!head.open) return sec;
     const panel = el("div", { class: "panel" });
-    panel.append(el("button", { type: "button", class: "collapser", "aria-expanded": String(open), onclick: () => { state.open[key] = !open; render(); } },
-      open ? "Hide history" : `Show ${rows.length} finished item${rows.length === 1 ? "" : "s"} older than ${SHOW_DAYS} days`));
-    if (open) {
-      const list = el("ul", { class: "feed" });
-      let month = "";
-      for (const e of rows) {
-        const d = new Date(ts(e.finishedAt));
-        const label = ts(e.finishedAt) ? d.toLocaleDateString(undefined, { month: "long", year: "numeric" }) : "Undated";
-        if (label !== month) { month = label; list.append(el("li", { class: "feed-day" }, label)); }
-        const title = e.url ? link(e.title, e.url) : el("span", {}, e.title);
-        list.append(el("li", { class: "feed-item hist-item" },
-          el("time", { class: "mono", datetime: e.finishedAt || "", title: ts(e.finishedAt) ? d.toLocaleString() : "" }, ts(e.finishedAt) ? d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) : ""),
-          el("span", { class: "chip kind" }, e.kind === "need" ? (KIND_LABEL[e.needKind] || "Need") : "Chat"),
-          el("span", {}, el("strong", {}, title), e.summary ? el("span", { class: "dim-text" }, ` · ${e.summary}`) : null,
-            e.pr?.number ? el("span", { class: "dim-text" }, ` · PR #${e.pr.number}`) : null)));
-      }
-      panel.append(list);
+    panel.append(el("p", { class: "empty" }, `Finished items older than ${SHOW_DAYS} days, newest first.`));
+    const list = el("ul", { class: "feed" });
+    let month = "";
+    for (const e of rows) {
+      const d = new Date(ts(e.finishedAt));
+      const label = ts(e.finishedAt) ? d.toLocaleDateString(undefined, { month: "long", year: "numeric" }) : "Undated";
+      if (label !== month) { month = label; list.append(el("li", { class: "feed-day" }, label)); }
+      const title = e.url ? link(e.title, e.url) : el("span", {}, e.title);
+      list.append(el("li", { class: "feed-item hist-item" },
+        el("time", { class: "mono", datetime: e.finishedAt || "", title: ts(e.finishedAt) ? d.toLocaleString() : "" }, ts(e.finishedAt) ? d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) : ""),
+        el("span", { class: "chip kind" }, e.kind === "need" ? (KIND_LABEL[e.needKind] || "Need") : "Chat"),
+        el("span", {}, el("strong", {}, title), e.summary ? el("span", { class: "dim-text" }, ` · ${e.summary}`) : null,
+          e.pr?.number ? el("span", { class: "dim-text" }, ` · PR #${e.pr.number}`) : null)));
     }
+    panel.append(list);
     sec.append(panel);
     return sec;
   }
