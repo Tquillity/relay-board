@@ -194,10 +194,30 @@
   .btn-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 
   /* Since you last looked */
-  .digest { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; border-color: rgba(142, 168, 255, 0.35); background: linear-gradient(90deg, var(--accent-soft), transparent 70%), var(--surface); }
+  .digest { display: flex; flex-direction: column; gap: 10px; border-color: rgba(142, 168, 255, 0.35); background: linear-gradient(90deg, var(--accent-soft), transparent 70%), var(--surface); }
+  .digest-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  .digest-toggle { all: unset; box-sizing: border-box; flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; cursor: pointer; border-radius: 6px; }
+  .digest-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .digest-toggle .chev { display: inline-block; width: 10px; color: var(--muted); font-size: 11px; transition: transform 0.15s ease; }
+  .digest-toggle[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+  @media (prefers-reduced-motion: reduce) { .digest-toggle .chev { transition: none; } }
   .digest strong { font-weight: 600; }
-  .digest .facts { display: flex; flex-wrap: wrap; gap: 4px 14px; flex: 1 1 auto; font-size: var(--fs-sm); color: var(--muted); }
+  .digest .facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); color: var(--muted); }
   .digest .facts b { color: var(--text); font-weight: 600; font-family: var(--mono); }
+  .digest .fact.you b { color: var(--you); }
+  .digest .fact.fin b { color: var(--ok); }
+  .digest .fact.quiet b { color: var(--wait); }
+  .digest-toggle:hover .facts { color: var(--text); }
+  .digest-body { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
+  .d-list, .d-sub { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .d-list > li, .d-sub > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding-block: 4px; border-top: 1px solid var(--line-soft); font-size: var(--fs-sm); }
+  .d-list > li:first-child { border-top: 0; }
+  .d-list time, .d-sub time { min-width: 9ch; white-space: nowrap; }
+  .d-list > li.d-proj { flex-direction: column; align-items: stretch; gap: 2px; }
+  .d-proj-head { display: flex; align-items: baseline; gap: 10px; }
+  .d-sub { padding-left: 14px; }
+  .d-sub > li:first-child { border-top: 0; }
+  .d-list .fin .spark { color: var(--ok); }
 
   /* Needs you */
   .needs { border-color: rgba(231, 183, 95, 0.35); background: linear-gradient(180deg, rgba(231,183,95,0.06), transparent 120px), var(--surface); display: flex; flex-direction: column; gap: 10px; }
@@ -700,22 +720,90 @@
     return items.sort((a, b) => ts(b.at) - ts(a.at));
   }
 
+  // What happened since the viewer last looked, from data already on the page. Folded by default;
+  // every fact says what it is, and the pane lists the actual items with links.
+  function digestData(since) {
+    const projects = orderedProjects();
+    const streams = projects.flatMap((p) => p.streams.map((x) => ({ ...x, project: p.id, title: x.legacy ? p.name : x.title })));
+    const finished = streams.filter((x) => ts(x.lastShipped?.at) > since || (x.status === "done" && ts(streamDoneAt(x)) > since))
+      .map((x) => ({
+        project: x.project, title: x.title || "Workstream", done: x.status === "done",
+        text: x.lastShipped?.text || x.currentTask || "", url: safeUrl(x.lastShipped?.url) || safeUrl(x.pr?.url),
+        at: ts(x.lastShipped?.at) > since ? x.lastShipped.at : streamDoneAt(x),
+      }))
+      .sort((m, n) => ts(n.at) - ts(m.at));
+    // An agent usually also logs a ship in `recent`; don't show the same event twice.
+    const shippedKeys = new Set(finished.flatMap((f) => [f.url && `u:${f.url}`, f.text && `t:${f.project}:${f.text}`]).filter(Boolean));
+    const updates = allActivity().filter((r) => ts(r.at) > since && !shippedKeys.has(`u:${safeUrl(r.url)}`) && !shippedKeys.has(`t:${r.project}:${r.text}`));
+    const byProject = new Map();
+    for (const r of updates) {
+      if (!byProject.has(r.project)) byProject.set(r.project, []);
+      byProject.get(r.project).push(r);
+    }
+    // A chat counts as "gone quiet" here only if it went quiet after the viewer last looked.
+    const quietFrom = (x) => ts(x.updatedAt) + (x.status === "waiting" ? 6 * HOUR : 90 * 60e3);
+    return {
+      updates, byProject, finished,
+      newNeeds: state.needs.filter((n) => !n.done && !n.answer && ts(n.createdAt) > since).sort((m, n) => ts(n.createdAt) - ts(m.createdAt)),
+      closed: state.needs.filter((n) => n.done && n.doneBy && n.doneBy !== "you" && ts(n.doneAt) > since).sort((m, n) => ts(n.doneAt) - ts(m.doneAt)),
+      quiet: streams.map((x) => ({ x, q: quietness(x) })).filter((r) => r.q && quietFrom(r.x) > since),
+    };
+  }
+  const projectChip = (slug) => !slug ? null : el("button", { type: "button", class: "chip project", style: "border:0;cursor:pointer", onclick: (e) => { e.stopPropagation(); setTab(slug); } }, projectName(slug));
+  const listNames = (slugs) => {
+    const names = slugs.map(projectName);
+    return names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+  };
+
   function digest() {
     const since = lastSeen;
     if (Date.now() - since < 10 * 60e3) return null;
-    const updates = allActivity().filter((r) => ts(r.at) > since).length;
-    const newNeeds = state.needs.filter((n) => !n.done && ts(n.createdAt) > since).length;
-    const handled = state.needs.filter((n) => n.done && n.doneBy && n.doneBy !== "you" && ts(n.doneAt) > since).length;
-    const quiet = orderedProjects().flatMap((p) => p.streams).filter((s) => quietness(s)).length;
-    if (!updates && !newNeeds && !handled && !quiet) return null;
-    const facts = el("div", { class: "facts" },
-      updates ? el("span", {}, el("b", {}, updates), ` update${updates === 1 ? "" : "s"}`) : null,
-      newNeeds ? el("span", {}, el("b", {}, newNeeds), ` new for you`) : null,
-      handled ? el("span", {}, el("b", {}, handled), ` closed by Claude`) : null,
-      quiet ? el("span", {}, el("b", {}, quiet), ` chat${quiet === 1 ? "" : "s"} gone quiet`) : null);
-    return el("section", { class: "panel digest", "aria-label": "Since you last looked" },
-      el("strong", {}, `Since ${whenLabel(since)}`), facts,
+    const d = digestData(since);
+    const nUpd = d.updates.length;
+    if (!nUpd && !d.newNeeds.length && !d.finished.length && !d.closed.length && !d.quiet.length) return null;
+    const key = "sec:digest";
+    const open = isOpen(key, false);
+    const toggle = () => toggleOpen(key, false);
+    const fact = (n, label, extra, cls = "") => n ? el("span", { class: `fact ${cls}` }, el("b", {}, n), ` ${label}`, extra ? el("span", { class: "dim-text" }, ` ${extra}`) : null) : null;
+    const plural = (n, one, many) => (n === 1 ? one : many);
+    const top = el("div", { class: "digest-top" },
+      el("button", { type: "button", class: "digest-toggle", id: toggleId(key), "aria-expanded": String(open), onclick: toggle },
+        el("span", { class: "chev", "aria-hidden": "true" }, "\u25BE"),
+        el("strong", {}, `Since ${whenLabel(since)}`),
+        el("span", { class: "facts" },
+          fact(d.newNeeds.length, "new for you", null, "you"),
+          fact(d.finished.length, d.finished.every((f) => f.done) ? "finished" : "shipped", null, "fin"),
+          fact(nUpd, plural(nUpd, "update", "updates"), `in ${listNames([...d.byProject.keys()])}`),
+          fact(d.closed.length, "closed by Claude"),
+          fact(d.quiet.length, plural(d.quiet.length, "chat gone quiet", "chats gone quiet"), null, "quiet"))),
       el("button", { type: "button", class: "btn", onclick: markSeen }, "Mark as seen"));
+    const sec = el("section", { class: `panel digest${open ? " open" : ""}`, "aria-label": "Since you last looked" }, top);
+    if (!open) return sec;
+
+    const body = el("div", { class: "digest-body" });
+    const group = (title, count, items) => items.length ? body.append(el("div", { class: "d-group" },
+      el("h3", { class: "n-group-h" }, title, el("span", { class: "mono dim-text" }, count)), el("ul", { class: "d-list" }, items))) : null;
+    const when = (iso) => el("time", { class: "mono dim-text", datetime: iso || "", title: ts(iso) ? new Date(ts(iso)).toLocaleString() : "" }, ts(iso) ? clock(ts(iso)) : "");
+
+    group("New for you", d.newNeeds.length, d.newNeeds.map((n) => el("li", {},
+      when(n.createdAt), projectChip(n.project),
+      el("span", {}, el("strong", {}, n.title || "Untitled"), n.kind ? el("span", { class: "dim-text" }, ` \u00b7 ${KIND_LABEL[n.kind] || n.kind}`) : null,
+        n.priority === "high" ? el("span", { class: "chip high", style: "margin-left:6px" }, "High") : null))));
+    group("Shipped & finished", d.finished.length, d.finished.map((f) => el("li", { class: "fin" },
+      when(f.at), projectChip(f.project), el("span", { class: "chip kind" }, f.done ? "Finished" : "Shipped"),
+      el("span", {}, el("span", { class: "spark", "aria-hidden": "true" }, "\u2726 "), el("strong", {}, f.title),
+        f.text ? el("span", { class: "dim-text" }, " \u00b7 ", f.url ? link(f.text, f.url) : f.text) : null))));
+    const upd = [...d.byProject.entries()].map(([slug, rows]) => el("li", { class: "d-proj" },
+      el("div", { class: "d-proj-head" }, projectChip(slug), el("span", { class: "dim-text" }, `${rows.length} ${plural(rows.length, "update", "updates")}`)),
+      el("ul", { class: "d-sub" }, rows.map((r) => el("li", {}, when(r.at),
+        el("span", {}, r.stream ? el("span", { class: "dim-text" }, `${r.stream}: `) : null, r.url ? link(r.text, r.url) : r.text))))));
+    group("Updates by project", nUpd, upd);
+    group("Closed by Claude", d.closed.length, d.closed.map((n) => el("li", {},
+      when(n.doneAt), projectChip(n.project), el("span", {}, n.title || "Untitled"))));
+    group("Gone quiet", d.quiet.length, d.quiet.map(({ x, q }) => el("li", {},
+      el("span", { class: `chip ${q.cls}` }, q.label), projectChip(x.project), el("span", {}, x.title || "Workstream"))));
+    sec.append(body);
+    return sec;
   }
 
   // ---- Activity feed -------------------------------------------------------

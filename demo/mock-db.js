@@ -57,6 +57,7 @@
       "weather-cli--offline": {
         project: "weather-cli", title: "Offline mode", tool: "Claude Code", agent: "Claude Opus",
         status: "active", currentTask: "Caching the last forecast so the CLI works without a network.", updatedAt: at(40 * M),
+        lastShipped: { text: "v1.4 released with faster startup", url: "https://github.com/example/weather-cli/releases", at: at(2 * H) },
         steps: [
           { title: "Cache layer", state: "done", size: "M" },
           { title: "Stale-data warning", state: "active", size: "S" },
@@ -145,6 +146,8 @@
     },
   };
   window.claude = { use: async (name) => (name === "db" ? db : null) };
+  // Pretend the viewer last looked 6 hours ago, so "Since you last looked" has something to show.
+  try { if (!localStorage.getItem("relay-last-seen")) localStorage.setItem("relay-last-seen", String(now - 6 * H)); } catch {}
 
   // For screenshots: ?open=history,finished unfolds matching section headers and "Show …" lists, and
   // ?only=history hides the other sections of a project view.
@@ -155,7 +158,7 @@
         const re = new RegExp(`^Show .*${word}`, "i");
         [...document.querySelectorAll(".collapser")].filter((b) => re.test(b.textContent)).forEach((b) => b.click());
         // Folded section headers, e.g. ?open=history
-        [...document.querySelectorAll(".eyebrow-btn[aria-expanded=false]")]
+        [...document.querySelectorAll(".eyebrow-btn[aria-expanded=false], .digest-toggle[aria-expanded=false]")]
           .filter((b) => b.textContent.replace(/^\W+/, "").toLowerCase().startsWith(word.toLowerCase())).forEach((b) => b.click());
       }
     }, 400);

@@ -13,9 +13,12 @@ A live dashboard for following many Claude Code chats across many projects from 
 - **Progress in the header** for the open project, for example `35% / 100% − 24%`. The first number is the share of live work that's done (red → yellow → green). The last number (orange when above zero) is the share waiting on you, and the first number can't pass 100 minus it until you've done your part. A project with nothing left to do stays at a green `100% / 100% − 0%`, and its card gets a holographic foil shimmer. Parked idea lists don't count as unfinished.
 - **Plan usage:** weekly (all models and Fable) and 5-hour bars, with an even-pace marker and a projection to the weekly reset.
 - **Quiet-chat detection:** a chat that says it's working but hasn't written for a while is flagged, and so is one waiting too long on something other than you.
-- **"Since you last looked"** digest and an activity feed.
+- **"Since you last looked":** a folded one-line summary ("4 new for you · 1 shipped · 6 updates in Acme, Weather CLI"). Open it for the actual items: new "Needs you" items, what shipped or finished, updates grouped by project, items Claude closed, and chats that went quiet. Every item links to its project.
+- **Activity feed** across all projects.
 - **Foldable sections:** click any section header (Needs you, Projects, Activity, Workstreams, History) to fold it. The board remembers your choice in this browser.
 - **History:** done items fold away at once, move to a per-project History section after 7 days, and after 30 days are squeezed into one archive record per project and month. You can look back as far as you like, and the store never fills up.
+
+![Since you last looked, opened](docs/screenshots/digest.png)
 
 ![Project view: progress in the header, workstreams with sized steps and "You" steps](docs/screenshots/project.png)
 
@@ -48,10 +51,11 @@ DEMO="file://$(pwd -W 2>/dev/null || pwd)/demo/board-demo.html"
 shot() { "$CHROME" --headless=new --hide-scrollbars --lang=en-US --window-size="$2" --virtual-time-budget=4000 --user-data-dir="$(mktemp -d)" --screenshot="$PWD/docs/screenshots/$1.png" "$DEMO$3"; }
 shot overview 1280,1500 ""
 shot project  1280,1500 "#p=acme-storefront"
+shot digest   1280,720  "?open=since"
 shot history  1280,560  "?open=history&only=history#p=acme-storefront"
 ```
 
-A fresh `--user-data-dir` each time lets this run while your normal Chrome is open, and starts with every section in its default open or folded state.
+`?open=` unfolds sections whose header starts with that word (`since` is the digest). A fresh `--user-data-dir` each time lets this run while your normal Chrome is open, and starts with every section in its default open or folded state.
 
 ## Publish a change to your own board
 
