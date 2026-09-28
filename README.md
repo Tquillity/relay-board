@@ -44,10 +44,10 @@ The full data model and the rules agents follow are in [`PROTOCOL.md`](PROTOCOL.
 Requires Node.js 18 or later. There is nothing to install.
 
 ```bash
-npm run demo    # builds demo/index.html
+npm run demo    # builds docs/demo/index.html
 ```
 
-Open `demo/index.html` in a browser. It is the real `index.html` with an in-memory stand-in for the artifact database ([`demo/mock-db.js`](demo/mock-db.js)), filled with made-up projects. Buttons work, but nothing is saved.
+Open `docs/demo/index.html` in a browser. It is the real `index.html` with an in-memory stand-in for the artifact database ([`demo/mock-db.js`](demo/mock-db.js)), filled with made-up projects. Buttons work, but nothing is saved.
 
 ```bash
 npm run check   # checks that the page and the demo data parse, and that the demo is up to date
@@ -71,7 +71,8 @@ npm run check   # checks that the page and the demo data parse, and that the dem
 | --- | --- |
 | [`index.html`](index.html) | The board: markup, styles and script in one file |
 | [`PROTOCOL.md`](PROTOCOL.md) | Data model and the rules agents follow |
-| [`demo/`](demo) | Made-up data, an in-memory database, and the built demo page |
+| [`demo/`](demo) | Made-up data, an in-memory database, and the demo build script |
+| [`docs/demo/`](docs/demo) | The built demo, served by GitHub Pages |
 | [`scripts/check.mjs`](scripts/check.mjs) | Dependency-free checks |
 | [`docs/screenshots/`](docs/screenshots) | Screenshots taken from the demo, and how to retake them |
 

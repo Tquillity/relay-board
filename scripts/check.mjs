@@ -34,11 +34,11 @@ if (scripts.length !== 1) {
 
 for (const file of ["demo/mock-db.js", "demo/screenshot-hooks.js"]) parses(file, read(file));
 
-if (read("demo/index.html") === buildDemo(root)) {
-  console.log("ok    demo/index.html is up to date");
+if (read("docs/demo/index.html") === buildDemo(root)) {
+  console.log("ok    docs/demo/index.html is up to date");
 } else {
   failed = true;
-  console.error("FAIL  demo/index.html is out of date: run `npm run demo` and commit the result");
+  console.error("FAIL  docs/demo/index.html is out of date: run `npm run demo` and commit the result");
 }
 
 process.exit(failed ? 1 : 0);

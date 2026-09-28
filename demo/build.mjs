@@ -1,7 +1,7 @@
-// Builds demo/index.html: the real page (index.html) with made-up data (mock-db.js) standing in
+// Builds docs/demo/index.html: the real page (index.html) with made-up data (mock-db.js) standing in
 // for the claude.ai `db` capability, plus the URL switches used for the README screenshots
 // (screenshot-hooks.js). The result is committed and served by GitHub Pages.
-// Usage: npm run demo   then open demo/index.html in a browser.
+// Usage: npm run demo   then open docs/demo/index.html in a browser.
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -24,6 +24,6 @@ export function buildDemo(root) {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-  writeFileSync(join(root, "demo", "index.html"), buildDemo(root));
-  console.log("Wrote demo/index.html");
+  writeFileSync(join(root, "docs", "demo", "index.html"), buildDemo(root));
+  console.log("Wrote docs/demo/index.html");
 }

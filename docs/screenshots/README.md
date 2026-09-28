@@ -10,7 +10,7 @@ To retake them, point `CHROME` at a Chrome binary, then run this from the repo r
 
 ```bash
 npm run demo
-DEMO="file://$(pwd -W 2>/dev/null || pwd)/demo/index.html"
+DEMO="file://$(pwd -W 2>/dev/null || pwd)/docs/demo/index.html"
 shot() {
   "$CHROME" --headless=new --hide-scrollbars --lang=en-US --window-size="$2" \
     --virtual-time-budget=4000 --user-data-dir="$(mktemp -d)" \
