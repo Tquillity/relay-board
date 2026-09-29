@@ -440,6 +440,7 @@
   .answered .you { color: var(--ok); font-weight: 600; }
   .answered q { color: var(--text); }
   .answered .stuck { color: var(--wait); }
+  time.future, .feed-item time.future, .list time.future { color: var(--bad); }
   .needs-extra { gap: 4px 18px; }
   .snooze-menu { display: inline-flex; gap: 4px; }
   .collapser { background: none; border: 0; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; padding: 2px 0; text-align: left; }
@@ -585,6 +586,7 @@ globalThis.RelayCore = (() => {
   const RATE_WINDOW = 36 * HOUR;            // usage projection: trailing window for the rate
   const MIN_ELAPSED = 12 * HOUR;            // usage projection: too early before this
   const STUCK_AFTER = 2 * HOUR;             // an answer a chat claimed but never handled
+  const CLOCK_SKEW = 10 * MINUTE;           // times further ahead than this are wrong, not early
 
   const STATES = ["active", "waiting", "blocked", "done", "idle", "todo"];
   const STATE_LABEL = { active: "Working", waiting: "Waiting", blocked: "Blocked", done: "Done", idle: "Idle", todo: "To do" };
@@ -620,9 +622,12 @@ globalThis.RelayCore = (() => {
     return d;
   }
 
+  // A time well ahead of now means the agent that wrote it guessed the date or has a wrong clock.
+  const isFuture = (iso, now) => ts(iso) > now + CLOCK_SKEW;
   function ago(iso, now) {
     const t = ts(iso);
     if (!t) return "";
+    if (isFuture(iso, now)) return "in the future";
     const s = Math.max(0, (now - t) / 1000);
     if (s < 60) return "just now";
     if (s < 3600) return `${Math.floor(s / 60)}m ago`;
@@ -934,10 +939,10 @@ globalThis.RelayCore = (() => {
   return {
     // tuning
     MINUTE, HOUR, DAY, WEEK, TICK, QUIET_AFTER, STOPPED_AFTER, WAITING_QUIET_AFTER, DIGEST_MIN_AGE, FEED_PAGE,
-    SHOW_DAYS, ARCHIVE_DAYS, ARCHIVE_LEASE_MS, USAGE_KEEP_DAYS, RATE_WINDOW, MIN_ELAPSED, STUCK_AFTER,
+    SHOW_DAYS, ARCHIVE_DAYS, ARCHIVE_LEASE_MS, USAGE_KEEP_DAYS, RATE_WINDOW, MIN_ELAPSED, STUCK_AFTER, CLOCK_SKEW,
     STATES, STATE_LABEL, SIZE_WEIGHT,
     // basics and incoming docs
-    st, safeUrl, appUrl, ts, num, clip, ago, span, normalize,
+    st, safeUrl, appUrl, ts, num, clip, isFuture, ago, span, normalize,
     // projects and streams
     streamsFor, allProjectSlugs, projectInfo, orderedProjects, quietness,
     // needs and progress
@@ -957,8 +962,8 @@ globalThis.RelayCore = (() => {
 // Renders the board from the live `db` capability, using the pure functions of RelayCore above.
 (() => {
   const {
-    MINUTE, HOUR, DAY, WEEK, TICK, DIGEST_MIN_AGE, FEED_PAGE, SHOW_DAYS, ARCHIVE_LEASE_MS, STATE_LABEL,
-    st, safeUrl, appUrl, ts, num, ago, span, normalize,
+    MINUTE, HOUR, DAY, WEEK, TICK, CLOCK_SKEW, DIGEST_MIN_AGE, FEED_PAGE, SHOW_DAYS, ARCHIVE_LEASE_MS, STATE_LABEL,
+    st, safeUrl, appUrl, ts, num, isFuture, ago, span, normalize,
     orderedProjects, quietness, isSnoozed, answerState, actionable, relayStuck, needsGroups, progressFor, progressColor,
     isOld, streamDoneAt, historyFor, archiveStamp, planArchive, projectWeek, staleReadings, allActivity, digestData,
   } = globalThis.RelayCore;
@@ -1031,7 +1036,11 @@ globalThis.RelayCore = (() => {
     return { h, open };
   }
 
-  const timeEl = (iso) => el("time", { datetime: iso || "", class: "mono", title: iso ? new Date(iso).toLocaleString() : "" }, ago(iso, Date.now()));
+  const FUTURE_NOTE = "This time is ahead of now: the chat that wrote it has the wrong date or clock.";
+  const timeEl = (iso) => {
+    const future = isFuture(iso, Date.now());
+    return el("time", { datetime: iso || "", class: `mono${future ? " future" : ""}`, title: future ? FUTURE_NOTE : iso ? new Date(iso).toLocaleString() : "" }, ago(iso, Date.now()));
+  };
   const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   const whenLabel = (ms) => {
     const d = new Date(ms);
@@ -1281,7 +1290,10 @@ globalThis.RelayCore = (() => {
     const body = el("div", { class: "digest-body" });
     const group = (title, count, items) => items.length ? body.append(el("div", { class: "d-group" },
       el("h3", { class: "n-group-h" }, title, el("span", { class: "mono dim-text" }, count)), el("ul", { class: "d-list" }, items))) : null;
-    const when = (iso) => el("time", { class: "mono dim-text", datetime: iso || "", title: ts(iso) ? new Date(ts(iso)).toLocaleString() : "" }, ts(iso) ? clock(ts(iso)) : "");
+    const when = (iso) => {
+      const future = isFuture(iso, Date.now());
+      return el("time", { class: `mono dim-text${future ? " future" : ""}`, datetime: iso || "", title: future ? FUTURE_NOTE : ts(iso) ? new Date(ts(iso)).toLocaleString() : "" }, ts(iso) ? clock(ts(iso)) : "");
+    };
 
     group("New for you", d.newNeeds.length, d.newNeeds.map((n) => el("li", {},
       when(n.createdAt), projectChip(n.project),
@@ -1306,6 +1318,7 @@ globalThis.RelayCore = (() => {
 
   // ---- Activity feed --------------------------------------------------
   function dayLabel(d) {
+    if (d.getTime() > Date.now() + CLOCK_SKEW) return "Ahead of now: wrong date or clock";
     if (d.toDateString() === new Date().toDateString()) return "Today";
     if (d.toDateString() === new Date(Date.now() - DAY).toDateString()) return "Yesterday";
     return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
@@ -1329,9 +1342,10 @@ globalThis.RelayCore = (() => {
     for (const r of rows.slice(0, state.feedLimit)) {
       const d = new Date(ts(r.at));
       const label = dayLabel(d);
+      const future = isFuture(r.at, Date.now());
       if (label !== day) { day = label; feed.append(el("li", { class: "feed-day" }, label)); }
       feed.append(el("li", { class: `feed-item${ts(r.at) > lastSeen ? " new" : ""}` },
-        el("time", { class: "mono", datetime: r.at, title: d.toLocaleString() }, clock(ts(r.at))),
+        el("time", { class: `mono${future ? " future" : ""}`, datetime: r.at, title: future ? FUTURE_NOTE : d.toLocaleString() }, clock(ts(r.at))),
         el("span", { class: "chip project" }, r.projectName),
         el("span", {}, r.url ? link(r.text, r.url) : r.text)));
     }
@@ -1759,7 +1773,9 @@ globalThis.RelayCore = (() => {
       f.focus();
       if (f.tagName === "TEXTAREA") f.setSelectionRange(f.value.length, f.value.length);
     }
-    const latest = [...projects.map((x) => x.updatedAt), ...state.needs.map((x) => x.updatedAt || x.createdAt)].filter(Boolean).sort().pop();
+    // A stamp ahead of now (an agent with a wrong date) must not hide the real last update.
+    const latest = [...projects.map((x) => x.updatedAt), ...state.needs.map((x) => x.updatedAt || x.createdAt)]
+      .filter((x) => ts(x) && !isFuture(x, Date.now())).sort((a, b) => ts(a) - ts(b)).pop();
     const sub = $("sub");
     sub.classList.toggle("bad", state.paused);
     sub.textContent = state.paused ? "Live updates paused. Reload to reconnect."

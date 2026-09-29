@@ -12,7 +12,7 @@ The examples use Claude Code's tools: `ArtifactData` to read and write the board
 - **Cheap for agents.** One write per milestone, never per tool call. Agents write facts; the page does all the analysis.
 - **Plain language.** The user reads the board to know what is happening without opening the chat.
 - **No secrets.** Never put passwords, tokens, keys or connection strings on the board. Name the variable instead.
-- **Real timestamps.** All times are current UTC ISO strings (`date -u +%FT%TZ`).
+- **Real timestamps.** All times are current UTC ISO strings from the clock (`date -u +%FT%TZ`), never a guessed date. The page marks any time more than 10 minutes ahead of now in red as a wrong date or clock.
 
 ## Writing with `ArtifactData`
 

@@ -67,8 +67,11 @@ test("ago reads as just now, minutes, hours, then days", () => {
   assert.equal(core.ago(before(40 * DAY), NOW), "40d ago");
 });
 
-test("ago treats future times as just now and invalid times as blank", () => {
-  assert.equal(core.ago(after(HOUR), NOW), "just now");
+test("ago treats slightly early times as just now, far-future ones as wrong, and invalid times as blank", () => {
+  assert.equal(core.ago(after(MINUTE), NOW), "just now");
+  assert.equal(core.ago(after(10 * MINUTE), NOW), "just now");
+  assert.equal(core.ago(after(10 * MINUTE + 1), NOW), "in the future");
+  assert.equal(core.ago(after(DAY), NOW), "in the future");
   assert.equal(core.ago("garbage", NOW), "");
   assert.equal(core.ago(undefined, NOW), "");
 });
@@ -86,4 +89,11 @@ test("progressColor runs from red at 0% to green at 100%", () => {
   assert.equal(core.progressColor(0), "hsl(4 72% 62%)");
   assert.equal(core.progressColor(50), "hsl(69 72% 62%)");
   assert.equal(core.progressColor(100), "hsl(134 72% 62%)");
+});
+
+test("a time more than 10 minutes ahead of now counts as a wrong clock", () => {
+  assert.equal(core.isFuture(after(10 * MINUTE), NOW), false);
+  assert.equal(core.isFuture(after(10 * MINUTE + 1), NOW), true);
+  assert.equal(core.isFuture(before(HOUR), NOW), false);
+  assert.equal(core.isFuture("garbage", NOW), false);
 });
