@@ -167,6 +167,35 @@ The page projects each weekly bar to its reset:
 
 The page deletes readings older than 15 days. "Fable" is one of Claude's model tiers, with its own weekly limit.
 
+### `services/<slug>`: third-party services per project, not written by chat agents
+
+One doc per project (`<slug>` is the project slug). It is written by a scanner run (which finds the services in the code) and by the page (when you type in a cost). Agents in other projects never write it.
+
+```json
+{
+  "project": "<slug>", "scannedAt": "...", "updatedAt": "...",
+  "items": {
+    "<provider-id>": {
+      "name": "Stripe", "category": "payments", "purpose": "Card payments",
+      "evidence": ["package.json: stripe", ".env.example: STRIPE_SECRET_KEY"],
+      "envVars": ["STRIPE_SECRET_KEY"], "plan": "Pro", "dashboardUrl": "https://dashboard.stripe.com",
+      "autoCost": { "monthly": 12.5, "currency": "USD", "at": "...", "lastMonth": 10, "note": "from the hosting invoice" },
+      "manualCost": { "monthly": 0, "currency": "SEK", "at": "..." },
+      "removed": true
+    }
+  }
+}
+```
+
+- `items` is a map keyed by a stable kebab-case provider id, so a merge-update can change one item.
+- `category` is one of payments, database, hosting, email, auth, monitoring, analytics, storage, ai, messaging, search, maps, cms, media, captcha, ci, domain, other. Anything else shows as "other".
+- Only environment variable **names** are recorded, never values. Never put a secret in this doc.
+- `autoCost` comes from a collector reading a provider's billing data. `manualCost` is written by the page: an amount typed by the viewer, where 0 means free, and `null` clears it. The cost that counts is whichever of the two has the newer `at`.
+- `removed: true` means the scanner no longer finds the service in the code. The item is kept, so a service that is still being paid for gets noticed.
+- Costs need a finite, non-negative `monthly` and a text `currency`; the page ignores any other cost. Totals are shown per currency and never converted.
+
+The Services view warns about: a removed service that still costs money; a cost that rose by more than 25% and at least 5 over `lastMonth`; a cost older than 45 days. A service with no cost at all shows "Cost not set" softly and is not counted as a warning.
+
 ### `archive/<slug>--<YYYY-MM>`: history, written only by the page
 
 Done items are kept, then slimmed down, by the page itself:

@@ -122,6 +122,88 @@
         },
       },
     },
+    // Third-party services per project: costs from billing (autoCost) or typed in by the viewer (manualCost).
+    services: {
+      "acme-storefront": {
+        project: "acme-storefront", scannedAt: at(1 * D), updatedAt: at(1 * D),
+        items: {
+          stripe: {
+            name: "Stripe", category: "payments", purpose: "Card payments at checkout", dashboardUrl: "https://dashboard.stripe.com",
+            evidence: ["package.json: stripe", ".env.example: PAYMENT_SECRET_KEY", "src/checkout/pay.ts: process.env.PAYMENT_WEBHOOK_SECRET"],
+            envVars: ["PAYMENT_SECRET_KEY", "PAYMENT_WEBHOOK_SECRET"], manualCost: { monthly: 0, currency: "USD", at: at(6 * D) },
+          },
+          vercel: {
+            name: "Vercel", category: "hosting", purpose: "Hosts the storefront", plan: "Pro", dashboardUrl: "https://vercel.com/dashboard",
+            evidence: ["vercel.json", "package.json: @vercel/analytics"], envVars: ["VERCEL_URL"],
+            autoCost: { monthly: 20, currency: "USD", at: at(1 * D), lastMonth: 20, note: "from the hosting invoice" },
+          },
+          supabase: {
+            name: "Supabase", category: "database", purpose: "Orders and catalogue", plan: "Pro", dashboardUrl: "https://supabase.com/dashboard",
+            evidence: ["package.json: @supabase/supabase-js", "supabase/config.toml", ".env.example: SUPABASE_URL"], envVars: ["SUPABASE_ANON_KEY", "SUPABASE_URL"],
+            autoCost: { monthly: 58, currency: "USD", at: at(1 * D), lastMonth: 25, note: "includes a compute add-on" },
+          },
+          resend: {
+            name: "Resend", category: "email", purpose: "Order confirmation emails", dashboardUrl: "https://resend.com",
+            evidence: ["package.json: resend"], envVars: ["MAIL_API_KEY"], manualCost: { monthly: 20, currency: "USD", at: at(3 * D) },
+          },
+          sentry: {
+            name: "Sentry", category: "monitoring", purpose: "Error reports", dashboardUrl: "https://sentry.io",
+            evidence: ["package.json: @sentry/nextjs", ".env.example: SENTRY_DSN"], envVars: ["SENTRY_DSN"],
+          },
+          algolia: {
+            name: "Algolia", category: "search", purpose: "Product search before the in-house index", dashboardUrl: "https://dashboard.algolia.com",
+            evidence: ["package.json: algoliasearch (removed)"], envVars: ["SEARCH_APP_ID"], removed: true,
+            manualCost: { monthly: 29, currency: "USD", at: at(10 * D) },
+          },
+        },
+      },
+      "weather-cli": {
+        project: "weather-cli", scannedAt: at(2 * D), updatedAt: at(2 * D),
+        items: {
+          "github-actions": {
+            name: "GitHub Actions", category: "ci", purpose: "Tests and releases", dashboardUrl: "https://github.com/features/actions",
+            evidence: [".github/workflows/release.yml"], envVars: [], manualCost: { monthly: 0, currency: "USD", at: at(14 * D) },
+          },
+          upstash: {
+            name: "Upstash", category: "database", purpose: "Shared forecast cache", dashboardUrl: "https://console.upstash.com",
+            evidence: ["package.json: @upstash/redis", ".env.example: CACHE_REST_URL"], envVars: ["CACHE_REST_URL", "CACHE_REST_TOKEN"],
+            manualCost: { monthly: 0, currency: "EUR", at: at(14 * D) },
+          },
+        },
+      },
+      "recipe-api": {
+        project: "recipe-api", scannedAt: at(5 * D), updatedAt: at(5 * D),
+        items: {
+          render: {
+            name: "Render", category: "hosting", purpose: "Runs the API", plan: "Starter", dashboardUrl: "https://dashboard.render.com",
+            evidence: ["render.yaml"], envVars: ["PORT"], autoCost: { monthly: 7, currency: "USD", at: at(2 * D), lastMonth: 7 },
+          },
+          neon: {
+            name: "Neon", category: "database", purpose: "Recipes and users", plan: "Launch", dashboardUrl: "https://console.neon.tech",
+            evidence: ["package.json: @neondatabase/serverless", ".env.example: DATABASE_URL"], envVars: ["DATABASE_URL"],
+            manualCost: { monthly: 199, currency: "SEK", at: at(12 * D) },
+          },
+          anthropic: {
+            name: "Anthropic", category: "ai", purpose: "Recipe suggestions", dashboardUrl: "https://console.anthropic.com",
+            evidence: ["package.json: @anthropic-ai/sdk", ".env.example: LLM_API_KEY"], envVars: ["LLM_API_KEY"],
+            autoCost: { monthly: 12.4, currency: "USD", at: at(1 * D), lastMonth: 11, note: "usage this month so far" },
+          },
+          cloudflare: {
+            name: "Cloudflare", category: "domain", purpose: "DNS for the API domain", dashboardUrl: "https://dash.cloudflare.com",
+            evidence: ["wrangler.toml"], envVars: [], manualCost: { monthly: 9, currency: "EUR", at: at(60 * D) },
+          },
+        },
+      },
+      "garden-planner": {
+        project: "garden-planner", scannedAt: at(9 * D), updatedAt: at(9 * D),
+        items: {
+          netlify: {
+            name: "Netlify", category: "hosting", purpose: "Static site", dashboardUrl: "https://app.netlify.com",
+            evidence: ["netlify.toml"], envVars: [], manualCost: { monthly: 0, currency: "USD", at: at(9 * D) },
+          },
+        },
+      },
+    },
     usage: {},
   };
   // A week of plan-usage readings, so the bars and week curve have something to show.
@@ -541,6 +623,57 @@
   .links a { font-size: var(--fs-sm); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; background: var(--surface-2); }
   .links a:hover { text-decoration: none; border-color: var(--accent); }
 
+  /* Work | Services switch */
+  .view-switch { display: inline-flex; align-self: center; border: 1px solid var(--line); border-radius: 999px; padding: 2px; background: var(--surface); }
+  .view-switch button { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; padding: 2px 12px; background: transparent; color: var(--muted); font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
+  .view-switch button:hover { color: var(--text); }
+  .view-switch button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+
+  /* Services */
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+  .chip.svc { background: var(--surface-2); color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 12px; }
+  .chip.svc.paid { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .chip.svc.unset { background: transparent; border: 1px dashed var(--line); }
+  .chip.svc.gone { text-decoration: line-through; }
+  .tbl-wrap { overflow-x: auto; }
+  table.svc-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+  .svc-table th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding: 4px 10px 6px; border-bottom: 1px solid var(--line); }
+  .svc-table td { padding: 8px 10px; border-top: 1px solid var(--line-soft); vertical-align: top; }
+  .svc-table tbody tr:first-child td { border-top: 0; }
+  .svc-table .num { text-align: right; white-space: nowrap; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .svc-table tfoot td { border-top: 1px solid var(--line); font-weight: 600; }
+  .svc-table .name-btn { background: none; border: 0; padding: 0; font-weight: 700; cursor: pointer; text-align: left; }
+  .svc-table .name-btn:hover { color: var(--accent); }
+  @media (max-width: 640px) {
+    .svc-table thead { display: none; }
+    .svc-table, .svc-table tbody, .svc-table tfoot, .svc-table tr, .svc-table td { display: block; }
+    .svc-table tr { padding-block: 8px; border-top: 1px solid var(--line-soft); }
+    .svc-table tbody tr:first-child { border-top: 0; }
+    .svc-table td, .svc-table tfoot td { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border: 0; padding: 2px 0; }
+    .svc-table td::before { content: attr(data-label); flex: none; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+    .svc-table td:first-child::before { content: none; }
+    .svc-table .num { text-align: right; }
+  }
+  .svc-groups { display: flex; flex-direction: column; gap: 12px; }
+  .svc-group { display: flex; flex-direction: column; gap: 4px; }
+  .svc-cost-top { display: flex; align-items: center; gap: 8px; }
+  .svc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .svc-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 20px; padding-block: 8px; border-top: 1px solid var(--line-soft); }
+  .svc-list > .svc-row:first-child { border-top: 0; padding-top: 2px; }
+  @media (max-width: 640px) { .svc-row { grid-template-columns: minmax(0, 1fr); } }
+  .svc-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .svc-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+  .svc-title strong { font-weight: 600; }
+  .svc-env { display: flex; flex-wrap: wrap; gap: 2px 10px; font-family: var(--mono); font-size: 11px; color: var(--faint); overflow-wrap: anywhere; }
+  .svc-ev { margin: 0; padding-left: 18px; font-family: var(--mono); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+  .svc-cost { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-size: var(--fs-sm); color: var(--muted); }
+  .svc-cost .amount { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 600; color: var(--text); }
+  @media (max-width: 640px) { .svc-cost { align-items: flex-start; } }
+  .cost-edit { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .cost-edit input, .cost-edit select { font: inherit; font-size: var(--fs-sm); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 3px 8px; min-height: 28px; }
+  .cost-edit input { width: 9ch; }
+  .svc-status { grid-column: 1 / -1; }
+
   .notice { color: var(--muted); font-size: var(--fs-sm); border: 1px dashed var(--line); border-radius: var(--radius); padding: var(--pad); }
   .empty { color: var(--muted); font-size: var(--fs-sm); margin: 0; }
   .toast {
@@ -554,8 +687,10 @@
     <span class="pulse" id="pulse" aria-hidden="true"></span>
     <h1>Relay Board</h1>
     <span class="crumb" id="crumb" hidden></span>
+    <div class="view-switch" id="view-switch" role="group" aria-label="View"></div>
     <span class="sub" id="sub">Connecting…</span>
     <span class="progress" id="progress" hidden></span>
+    <span class="progress" id="cost" hidden></span>
   </div>
 </header>
 <section class="usage" id="usage" aria-label="Claude plan usage" hidden></section>
@@ -587,6 +722,9 @@ globalThis.RelayCore = (() => {
   const MIN_ELAPSED = 12 * HOUR;            // usage projection: too early before this
   const STUCK_AFTER = 2 * HOUR;             // an answer a chat claimed but never handled
   const CLOCK_SKEW = 10 * MINUTE;           // times further ahead than this are wrong, not early
+  const COST_STALE_AFTER = 45 * DAY;        // a service cost nobody has confirmed for this long is "stale"
+  const COST_INCREASE_RATIO = 1.25;         // a bill up by more than 25%...
+  const COST_INCREASE_MIN = 5;              // ...and by at least this much is flagged
 
   const STATES = ["active", "waiting", "blocked", "done", "idle", "todo"];
   const STATE_LABEL = { active: "Working", waiting: "Waiting", blocked: "Blocked", done: "Done", idle: "Idle", todo: "To do" };
@@ -608,6 +746,7 @@ globalThis.RelayCore = (() => {
   // wins over an `id` field inside the data. Returns null for a doc that isn't an object at all.
   const objects = (v) => (Array.isArray(v) ? v.filter(isObj) : []);
   const texts = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" || typeof x === "number").map(String) : []);
+  const validCost = (c) => isObj(c) && num(c.monthly) != null && c.monthly >= 0 && typeof c.currency === "string" && c.currency.trim() !== "";
   function normalize(name, id, raw) {
     if (!isObj(raw)) return null;
     const d = { ...raw, id };
@@ -618,6 +757,19 @@ globalThis.RelayCore = (() => {
       for (const k of ["steps", "options"]) if (k in d) d[k] = texts(d[k]);
       // A bare string or number is read as the choice; anything else that isn't an object means no answer.
       if (!isObj(d.answer)) d.answer = (typeof d.answer === "string" && d.answer.trim()) || typeof d.answer === "number" ? { choice: String(d.answer) } : null;
+    }
+    if (name === "services") {
+      // `items` is a map of provider id -> item. Keep only objects, text lists, and cost objects
+      // that have a usable amount and currency.
+      const items = {};
+      for (const [key, item] of Object.entries(isObj(d.items) ? d.items : {})) {
+        if (!isObj(item)) continue;
+        const clean = { ...item };
+        for (const k of ["envVars", "evidence"]) if (k in clean) clean[k] = texts(clean[k]);
+        for (const k of ["autoCost", "manualCost"]) if (k in clean && !validCost(clean[k])) delete clean[k];
+        items[key] = clean;
+      }
+      d.items = items;
     }
     return d;
   }
@@ -936,11 +1088,111 @@ globalThis.RelayCore = (() => {
     };
   }
 
+  // ---- Services -------------------------------------------------------
+  // services/<slug> lists the third-party services a project uses (see PROTOCOL.md). Money is never
+  // converted: totals are kept per currency.
+  const SERVICE_CATEGORY_LABEL = {
+    payments: "Payments", database: "Databases", hosting: "Hosting", email: "Email", auth: "Auth", monitoring: "Monitoring",
+    analytics: "Analytics", storage: "Storage", ai: "AI", messaging: "Messaging", search: "Search", maps: "Maps", cms: "CMS",
+    media: "Media", captcha: "Captcha", ci: "CI", domain: "Domains", other: "Other",
+  };
+  const SERVICE_CATEGORIES = Object.keys(SERVICE_CATEGORY_LABEL);
+  const serviceCategory = (item) => (Object.hasOwn(SERVICE_CATEGORY_LABEL, item?.category) ? item.category : "other");
+
+  function formatMoney(amount, currency, locale = "en-US") {
+    const whole = Number.isInteger(amount);
+    try {
+      return new Intl.NumberFormat(locale, { style: "currency", currency: String(currency).toUpperCase(), minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: 2 }).format(amount);
+    } catch { return `${amount} ${currency}`; } // not a real currency code
+  }
+  // Totals as written by servicesSummary: [{ currency, monthly }], e.g. "$32 + SEK 199".
+  const formatTotals = (totals, locale) => totals.map((t) => formatMoney(t.monthly, t.currency, locale)).join(" + ");
+
+  // What a service costs per month right now: the newer of the collector's figure and the one the
+  // viewer typed in. Null when neither is usable.
+  function effectiveCost(item) {
+    const found = [["manual", item?.manualCost], ["auto", item?.autoCost]].filter(([, c]) => validCost(c));
+    if (!found.length) return null;
+    const [source, c] = found.reduce((a, b) => (ts(b[1].at) > ts(a[1].at) ? b : a));
+    return { monthly: c.monthly, currency: c.currency, at: c.at ?? null, source };
+  }
+
+  // Things worth a look for one service. "unknown" is soft: it is shown, but not counted as a warning.
+  function serviceWarnings(item, now) {
+    const cost = effectiveCost(item);
+    const out = [];
+    if (item?.removed === true) {
+      if (cost && cost.monthly > 0) out.push({ kind: "removed-paid", text: `No longer found in the code but still costs ${formatMoney(cost.monthly, cost.currency)} a month` });
+      return out;
+    }
+    if (!cost) return [{ kind: "unknown", soft: true, text: "Cost not set" }];
+    const last = item.autoCost?.lastMonth;
+    if (cost.source === "auto" && num(last) != null && cost.monthly > last * COST_INCREASE_RATIO && cost.monthly - last >= COST_INCREASE_MIN) {
+      out.push({ kind: "increase", text: `Up from ${formatMoney(last, cost.currency)} to ${formatMoney(cost.monthly, cost.currency)} a month` });
+    }
+    if (ts(cost.at) && now - ts(cost.at) > COST_STALE_AFTER) out.push({ kind: "stale", text: `Cost not updated for ${Math.floor((now - ts(cost.at)) / DAY)} days` });
+    return out;
+  }
+
+  // Paid first (dearest first), then free, then unknown, removed last.
+  const serviceRank = (s) => (s.removed ? 3 : !s.cost ? 2 : s.cost.monthly > 0 ? 0 : 1);
+  function addTotal(map, cost) {
+    if (cost) map.set(cost.currency, (map.get(cost.currency) || 0) + cost.monthly);
+  }
+  const totalsOf = (map) => [...map].map(([currency, monthly]) => ({ currency, monthly: Math.round(monthly * 100) / 100 }))
+    .sort((a, b) => (a.currency < b.currency ? -1 : a.currency > b.currency ? 1 : 0));
+
+  // Everything the Services view shows: per project (in tab order) its sorted items, totals and
+  // warnings, then the overall totals and warnings, and the same services grouped by provider.
+  function servicesSummary(data, now) {
+    const docs = rows(data, "services").filter((d) => isObj(d.items));
+    const order = orderedProjects(data, now).map((p) => p.id);
+    const nameOf = (slug) => rows(data, "projects").find((p) => p.id === slug)?.name || slug;
+    const rank = (slug) => (order.includes(slug) ? order.indexOf(slug) : order.length);
+    const providers = new Map();
+    const all = new Map();
+    const projects = [...docs].sort((a, b) => rank(a.id) - rank(b.id) || (a.id < b.id ? -1 : 1)).map((doc) => {
+      const slug = doc.id, name = nameOf(slug);
+      const items = Object.entries(doc.items).filter(([, v]) => isObj(v)).map(([id, v]) => ({
+        id, name: clip(v.name, 80) || id, category: serviceCategory(v), purpose: clip(v.purpose), plan: clip(v.plan, 60),
+        dashboardUrl: safeUrl(v.dashboardUrl), evidence: texts(v.evidence), envVars: texts(v.envVars),
+        removed: v.removed === true, cost: effectiveCost(v), autoCost: validCost(v.autoCost) ? v.autoCost : null,
+        manualCost: validCost(v.manualCost) ? v.manualCost : null, warnings: serviceWarnings(v, now),
+      })).sort((a, b) => serviceRank(a) - serviceRank(b) || (b.cost?.monthly ?? 0) - (a.cost?.monthly ?? 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      const mine = new Map();
+      const warnings = [];
+      for (const s of items) {
+        addTotal(mine, s.cost);
+        addTotal(all, s.cost);
+        for (const w of s.warnings) warnings.push({ ...w, project: slug, projectName: name, service: s.id, name: s.name });
+        if (!providers.has(s.id)) providers.set(s.id, { id: s.id, name: s.name, category: s.category, projects: [], totals: new Map() });
+        const prov = providers.get(s.id);
+        prov.projects.push({ slug, name, removed: s.removed });
+        addTotal(prov.totals, s.cost);
+      }
+      return {
+        slug, name, items, totals: totalsOf(mine), warnings: warnings.filter((w) => !w.soft),
+        unknown: warnings.filter((w) => w.soft).length, scannedAt: doc.scannedAt ?? null, updatedAt: doc.updatedAt ?? null,
+      };
+    });
+    // Amounts in different currencies are added up here only to order the providers; never shown.
+    const spend = (p) => p.totals.reduce((n, t) => n + t.monthly, 0);
+    return {
+      projects,
+      totals: totalsOf(all),
+      warnings: projects.flatMap((p) => p.warnings),
+      unknown: projects.reduce((n, p) => n + p.unknown, 0),
+      providers: [...providers.values()].map((p) => ({ ...p, totals: totalsOf(p.totals), removed: p.projects.every((x) => x.removed) }))
+        .sort((a, b) => spend(b) - spend(a) || b.projects.length - a.projects.length || (a.name < b.name ? -1 : 1)),
+    };
+  }
+
   return {
     // tuning
     MINUTE, HOUR, DAY, WEEK, TICK, QUIET_AFTER, STOPPED_AFTER, WAITING_QUIET_AFTER, DIGEST_MIN_AGE, FEED_PAGE,
     SHOW_DAYS, ARCHIVE_DAYS, ARCHIVE_LEASE_MS, USAGE_KEEP_DAYS, RATE_WINDOW, MIN_ELAPSED, STUCK_AFTER, CLOCK_SKEW,
-    STATES, STATE_LABEL, SIZE_WEIGHT,
+    COST_STALE_AFTER, COST_INCREASE_RATIO, COST_INCREASE_MIN,
+    STATES, STATE_LABEL, SIZE_WEIGHT, SERVICE_CATEGORIES, SERVICE_CATEGORY_LABEL,
     // basics and incoming docs
     st, safeUrl, appUrl, ts, num, clip, isFuture, ago, span, normalize,
     // projects and streams
@@ -949,6 +1201,8 @@ globalThis.RelayCore = (() => {
     isSnoozed, answerState, openNeeds, actionable, relayStuck, needsGroups, progressFor, progressColor,
     // history and archiving
     isOld, hash, itemKey, streamDoneAt, needDoneAt, streamEntry, needEntry, historyFor, archiveStamp, planArchive,
+    // services
+    validCost, serviceCategory, formatMoney, formatTotals, effectiveCost, serviceWarnings, servicesSummary,
     // plan usage
     readings, valueAt, projectWeek, staleReadings,
     // digest
@@ -966,11 +1220,12 @@ globalThis.RelayCore = (() => {
     st, safeUrl, appUrl, ts, num, isFuture, ago, span, normalize,
     orderedProjects, quietness, isSnoozed, answerState, actionable, relayStuck, needsGroups, progressFor, progressColor,
     isOld, streamDoneAt, historyFor, archiveStamp, planArchive, projectWeek, staleReadings, allActivity, digestData,
+    SERVICE_CATEGORIES, SERVICE_CATEGORY_LABEL, formatMoney, formatTotals, servicesSummary,
   } = globalThis.RelayCore;
   const state = {
-    projects: [], streams: [], needs: [], usage: [], archive: [],
+    projects: [], streams: [], needs: [], usage: [], archive: [], services: [],
     loaded: {}, fresh: {}, paused: false,
-    tab: "overview", db: null, ready: false,
+    view: "work", tab: "overview", db: null, ready: false,
     open: {}, drafts: {}, saving: {}, failed: {}, feedFilter: "all", feedLimit: FEED_PAGE,
   };
 
@@ -1008,7 +1263,7 @@ globalThis.RelayCore = (() => {
   // Fold/unfold choices (sections, the usage chart, "Show N ..." lists) survive reloads.
   // Drafts and menus don't.
   const OPEN_KEY = "relay-open";
-  const PERSIST = /^(sec:|finished-|history-|snoozed-|done-)/;
+  const PERSIST = /^(sec:|finished-|history-|snoozed-|done-|removed-)/;
   try {
     const saved = JSON.parse(store.get(OPEN_KEY) || "{}");
     if (saved && typeof saved === "object") {
@@ -1078,19 +1333,20 @@ globalThis.RelayCore = (() => {
   const KIND_LABEL = { approval: "Approval", decision: "Decision", task: "Manual task" };
   const GROUP_LABEL = { approval: "Approvals", decision: "Decisions", task: "Tasks for you" };
 
-  // Every change to a need goes through here: one save at a time per item, its buttons disabled
-  // while it saves, and a failure shown on the item itself (not only in the toast).
-  async function needWrite(n, patch, okMsg) {
-    if (state.saving[n.id]) return false;
-    state.saving[n.id] = true;
-    delete state.failed[n.id];
+  // Every change to a need (or a service cost) goes through here: one save at a time per item, its
+  // buttons disabled while it saves, and a failure shown on the item itself (not only in the toast).
+  async function guardedSave(key, path, patch, okMsg) {
+    if (state.saving[key]) return false;
+    state.saving[key] = true;
+    delete state.failed[key];
     render();
-    const why = await save(`needs/${n.id}`, patch, okMsg);
-    delete state.saving[n.id];
-    if (why) state.failed[n.id] = why;
+    const why = await save(path, patch, okMsg);
+    delete state.saving[key];
+    if (why) state.failed[key] = why;
     render();
     return !why;
   }
+  const needWrite = (n, patch, okMsg) => guardedSave(n.id, `needs/${n.id}`, patch, okMsg);
   async function answerNeed(n, choice) {
     const note = (state.drafts[n.id] || "").trim();
     if (!choice && !note) { showToast("Write an answer first."); return; }
@@ -1681,22 +1937,248 @@ globalThis.RelayCore = (() => {
     }
   }
 
+  // ---- Services -------------------------------------------------------
+  // A second view of the same projects: the third-party services each one uses, and what they cost
+  // per month. What counts as a warning, and every sum, comes from servicesSummary() in the core.
+  const money = (cost) => formatMoney(cost.monthly, cost.currency);
+  const WARNING_LABEL = { "removed-paid": "Still paid", increase: "Cost up", stale: "Stale cost" };
+  const domId = (key) => `svc-${key.replace(/[^\w-]/g, "-")}`;
+  const COST_CURRENCIES = ["USD", "EUR", "SEK"];
+
+  function serviceChip(s) {
+    const paid = !s.removed && s.cost?.monthly > 0;
+    const cls = ["chip svc", paid && "paid", !s.cost && !s.removed && "unset", s.removed && "gone"].filter(Boolean).join(" ");
+    const title = s.removed ? "No longer found in the code" : s.cost ? `${money(s.cost)} a month` : "Cost not set";
+    return el("span", { class: cls, title }, s.name, paid ? ` ${money(s.cost)}` : null);
+  }
+
+  // Set, change or clear the cost the viewer enters by hand (null clears it). The collector's own
+  // figure is never touched; whichever of the two is newer counts.
+  async function saveCost(slug, s, monthly, currency) {
+    const key = `svc:${slug}/${s.id}`, editKey = `cost-${slug}/${s.id}`;
+    if (state.saving[key]) return;
+    if (monthly != null && !(monthly >= 0 && isFinite(monthly))) {
+      state.failed[key] = "Enter an amount of 0 or more.";
+      render();
+      return;
+    }
+    const manualCost = monthly == null ? null : { monthly, currency, at: nowIso() };
+    const patch = { items: { [s.id]: { manualCost } }, updatedAt: nowIso() };
+    if (await guardedSave(key, `services/${slug}`, patch, monthly == null ? "Cost cleared." : "Cost saved.")) {
+      delete state.drafts[editKey];
+      state.open[editKey] = false;
+      render();
+    }
+  }
+
+  function costEditor(slug, s) {
+    const editKey = `cost-${slug}/${s.id}`, id = domId(editKey);
+    const draft = (state.drafts[editKey] ||= { amount: s.manualCost ? String(s.manualCost.monthly) : "", currency: s.manualCost?.currency || s.cost?.currency || "USD" });
+    const currencies = COST_CURRENCIES.includes(draft.currency) ? COST_CURRENCIES : [...COST_CURRENCIES, draft.currency];
+    const amount = el("input", { id, type: "number", min: "0", step: "any", inputmode: "decimal", placeholder: "0", "aria-label": `Monthly cost of ${s.name}`, value: draft.amount });
+    amount.addEventListener("input", (e) => { draft.amount = e.target.value; });
+    const currency = el("select", { "aria-label": `Currency for ${s.name}` }, currencies.map((c) => el("option", { value: c, selected: c === draft.currency }, c)));
+    currency.addEventListener("change", (e) => { draft.currency = e.target.value; });
+    const typed = () => (draft.amount.trim() === "" ? NaN : Number(draft.amount.replace(",", ".")));
+    const submit = (value) => saveCost(slug, s, value, draft.currency);
+    const cancel = () => { delete state.drafts[editKey]; delete state.failed[`svc:${slug}/${s.id}`]; state.open[editKey] = false; render(); };
+    amount.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); submit(typed()); }
+      else if (e.key === "Escape") cancel();
+    });
+    return el("div", { class: "cost-edit" }, amount, currency,
+      el("button", { type: "button", class: "btn primary", onclick: () => submit(typed()) }, "Save"),
+      el("button", { type: "button", class: "btn", title: "Free: save a cost of 0", onclick: () => submit(0) }, "Free"),
+      s.manualCost ? el("button", { type: "button", class: "btn ghost", title: "Remove the cost you entered", onclick: () => submit(null) }, "Clear") : null,
+      el("button", { type: "button", class: "btn ghost", onclick: cancel }, "Cancel"));
+  }
+
+  function renderServiceRow({ slug, s }) {
+    const key = `svc:${slug}/${s.id}`, editKey = `cost-${slug}/${s.id}`, evKey = `ev-${slug}/${s.id}`;
+    const editing = !!state.open[editKey];
+    const row = el("li", { class: "svc-row" });
+    const main = el("div", { class: "svc-main" },
+      el("div", { class: "svc-title" }, el("strong", {}, link(s.name, s.dashboardUrl)), s.plan ? el("span", { class: "chip kind" }, s.plan) : null),
+      s.purpose ? el("div", { class: "need-why" }, s.purpose) : null,
+      s.warnings.filter((w) => !w.soft).map((w) => el("div", { class: `callout${w.kind === "removed-paid" ? " bad" : ""}` }, w.text)),
+      s.envVars.length ? el("div", { class: "svc-env", "aria-label": "Environment variables" }, s.envVars.map((v) => el("span", {}, v))) : null);
+    if (s.evidence.length) {
+      const open = !!state.open[evKey];
+      main.append(el("button", { type: "button", class: "collapser", id: domId(evKey), "aria-expanded": String(open), onclick: () => { state.open[evKey] = !open; render(); } },
+        open ? "Hide where it was found" : `Found in ${s.evidence.length} ${s.evidence.length === 1 ? "place" : "places"}`));
+      if (open) main.append(el("ul", { class: "svc-ev" }, s.evidence.map((e) => el("li", {}, e))));
+    }
+    const toggleEditor = () => {
+      state.open[editKey] = !editing;
+      render();
+      document.getElementById(domId(editKey))?.focus();
+    };
+    const c = s.cost;
+    const meta = !c ? null : el("span", {},
+      c.source === "manual" ? "entered by you " : "from billing ", c.at ? timeEl(c.at) : null,
+      c.source === "auto" && s.autoCost?.lastMonth != null ? ` · last month ${formatMoney(s.autoCost.lastMonth, c.currency)}` : null,
+      c.source === "auto" && s.autoCost?.note ? ` · ${s.autoCost.note}` : null);
+    row.append(main, el("div", { class: "svc-cost" },
+      el("div", { class: "svc-cost-top" },
+        c ? el("span", { class: "amount" }, `${money(c)}/mo`) : el("span", { class: "dim-text" }, "Cost not set"),
+        el("button", { type: "button", class: "btn ghost", "aria-expanded": String(editing), onclick: toggleEditor }, c ? "Change cost" : "Set cost")),
+      meta));
+    if (editing) row.append(costEditor(slug, s));
+    if (state.saving[key]) {
+      for (const b of row.querySelectorAll(".btn, input, select")) b.disabled = true;
+      row.setAttribute("aria-busy", "true");
+      row.append(el("div", { class: "dim-text need-why svc-status", role: "status" }, "Saving…"));
+    } else if (state.failed[key]) {
+      row.append(el("div", { class: "callout bad svc-status", role: "alert" }, state.failed[key]));
+    }
+    return row;
+  }
+  const serviceRow = safely(renderServiceRow, "li", "service");
+
+  // One project's services, grouped by category. Services the scanner no longer finds sit in their
+  // own fold, open by default when one of them still triggers a warning.
+  function servicesProject(p, svc) {
+    const frag = document.createDocumentFragment();
+    const sp = svc.projects.find((x) => x.slug === p.id);
+    frag.append(el("section", { class: "proj-head" },
+      el("div", {},
+        el("h2", {}, p.name),
+        el("div", { class: "meta" },
+          el("span", {}, "Services"),
+          sp ? el("span", {}, "Scanned ", sp.scannedAt ? timeEl(sp.scannedAt) : "never") : null,
+          sp?.totals.length ? el("span", { class: "mono" }, `${formatTotals(sp.totals)} / month`) : null))));
+    if (!sp || !sp.items.length) {
+      frag.append(el("p", { class: "notice" }, "No services recorded yet."));
+      return frag;
+    }
+    const active = sp.items.filter((s) => !s.removed), gone = sp.items.filter((s) => s.removed);
+    const sec = el("section", { "aria-labelledby": `svc-h-${p.id}` });
+    const head = sectionHead(`sec:services:${p.id}`, `svc-h-${p.id}`, "Services", `${active.length}`);
+    sec.append(head.h);
+    if (head.open) {
+      const wrap = el("div", { class: "panel svc-groups" });
+      if (!active.length) wrap.append(el("p", { class: "empty" }, "Nothing active."));
+      for (const cat of SERVICE_CATEGORIES) {
+        const list = active.filter((s) => s.category === cat);
+        if (!list.length) continue;
+        wrap.append(el("section", { class: "svc-group", "aria-label": SERVICE_CATEGORY_LABEL[cat] },
+          el("h4", { class: "sub-h" }, SERVICE_CATEGORY_LABEL[cat]),
+          el("ul", { class: "svc-list" }, list.map((s) => serviceRow({ slug: p.id, s })))));
+      }
+      if (gone.length) {
+        const key = `removed-${p.id}`, def = gone.some((s) => s.warnings.length > 0);
+        const open = isOpen(key, def);
+        wrap.append(el("button", { type: "button", class: "collapser", id: toggleId(key), "aria-expanded": String(open), onclick: () => toggleOpen(key, def) },
+          `${open ? "Hide" : "Show"} ${gone.length} no longer found in the code`));
+        if (open) wrap.append(el("ul", { class: "svc-list" }, gone.map((s) => serviceRow({ slug: p.id, s }))));
+      }
+      sec.append(wrap);
+    }
+    frag.append(sec);
+    return frag;
+  }
+
+  const th = (label, cls) => el("th", { scope: "col", class: cls }, label);
+  function servicesOverview(svc) {
+    const frag = document.createDocumentFragment();
+    if (!svc.projects.length) {
+      frag.append(el("p", { class: "notice" }, "No services recorded yet."));
+      return frag;
+    }
+    if (svc.warnings.length) {
+      const sec = el("section", { "aria-labelledby": "svc-check-h" });
+      const head = sectionHead("sec:svc-check", "svc-check-h", "Check these", `${svc.warnings.length}`);
+      sec.append(head.h);
+      if (head.open) {
+        sec.append(el("div", { class: "panel needs" }, el("ul", { class: "needs-list" }, svc.warnings.map((w) => el("li", { class: "need" },
+          el("div", { class: "need-head" }, projectChip(w.project), el("span", { class: "need-title" }, w.name), el("span", { class: "chip quiet" }, WARNING_LABEL[w.kind] || w.kind)),
+          el("div", { class: "need-why" }, w.text))))));
+      }
+      frag.append(sec);
+    }
+
+    const projSec = el("section", { "aria-labelledby": "svc-proj-h" });
+    const projHead = sectionHead("sec:svc-projects", "svc-proj-h", "Projects", `${svc.projects.length}`);
+    projSec.append(projHead.h);
+    if (projHead.open) {
+      const body = svc.projects.map((p) => el("tr", {},
+        el("td", { "data-label": "Project" }, el("button", { type: "button", class: "name-btn", onclick: () => setTab(p.slug) }, p.name)),
+        el("td", { "data-label": "Services" }, p.items.length ? el("span", { class: "chips" }, p.items.map(serviceChip)) : el("span", { class: "dim-text" }, "None")),
+        el("td", { class: "num", "data-label": "Per month" }, p.totals.length ? formatTotals(p.totals) : "–"),
+        el("td", { "data-label": "To check" },
+          p.warnings.length ? el("span", { class: "chip quiet" }, `${p.warnings.length} to check`) : null,
+          p.unknown ? el("span", { class: "dim-text" }, `${p.warnings.length ? " · " : ""}${p.unknown} without a cost`) : null,
+          !p.warnings.length && !p.unknown ? el("span", { class: "dim-text" }, "–") : null),
+        el("td", { "data-label": "Scanned" }, p.scannedAt ? timeEl(p.scannedAt) : el("span", { class: "dim-text" }, "never"))));
+      const count = svc.projects.reduce((n, p) => n + p.items.filter((s) => !s.removed).length, 0);
+      const foot = el("tr", {},
+        el("td", { "data-label": "Total" }, "All projects"),
+        el("td", { "data-label": "Services" }, `${count} active`),
+        el("td", { class: "num", "data-label": "Per month" }, svc.totals.length ? formatTotals(svc.totals) : "–"),
+        el("td", { "data-label": "To check" }, svc.warnings.length ? `${svc.warnings.length} to check` : "–"),
+        el("td", { "data-label": "Scanned" }));
+      projSec.append(el("div", { class: "panel tbl-wrap" }, el("table", { class: "svc-table" },
+        el("thead", {}, el("tr", {}, th("Project"), th("Services"), th("Per month", "num"), th("To check"), th("Scanned"))),
+        el("tbody", {}, body), el("tfoot", {}, foot))));
+    }
+    frag.append(projSec);
+
+    const provSec = el("section", { "aria-labelledby": "svc-prov-h" });
+    const provHead = sectionHead("sec:svc-providers", "svc-prov-h", "By provider", `${svc.providers.length}`);
+    provSec.append(provHead.h);
+    if (provHead.open) {
+      const body = svc.providers.map((v) => el("tr", {},
+        el("td", { "data-label": "Provider" }, el("strong", {}, v.name), el("span", { class: "dim-text" }, ` · ${SERVICE_CATEGORY_LABEL[v.category]}${v.removed ? " · no longer used" : ""}`)),
+        el("td", { "data-label": "Used by" }, el("span", { class: "chips" }, v.projects.map((x) => projectChip(x.slug)))),
+        el("td", { class: "num", "data-label": "Per month" }, v.totals.length ? formatTotals(v.totals) : "–")));
+      provSec.append(el("div", { class: "panel tbl-wrap" }, el("table", { class: "svc-table" },
+        el("thead", {}, el("tr", {}, th("Provider"), th("Used by"), th("Per month", "num"))),
+        el("tbody", {}, body))));
+    }
+    frag.append(provSec);
+    return frag;
+  }
+
   // ---- Tabs + render --------------------------------------------------
-  function readTab() {
-    const m = location.hash.match(/^#p=([\w.-]+)$/);
-    if (m) return m[1];
-    return store.get("relay-tab") || "overview";
+  // The address says which view (Work or Services) and which project tab is open:
+  // (none) / #p=<slug> for Work, #v=services / #v=services&p=<slug> for Services.
+  const SERVICES_ROUTE = /^#v=services(?:&p=([\w.-]+))?$/;
+  function applyRoute() {
+    const services = location.hash.match(SERVICES_ROUTE);
+    const work = location.hash.match(/^#p=([\w.-]+)$/);
+    if (services) Object.assign(state, { view: "services", tab: services[1] || "overview" });
+    else if (work) Object.assign(state, { view: "work", tab: work[1] });
+    else Object.assign(state, { view: store.get("relay-view") === "services" ? "services" : "work", tab: store.get("relay-tab") || "overview" });
+    store.set("relay-view", state.view);
+  }
+  function syncHash() {
+    const overview = state.tab === "overview";
+    const hash = state.view === "services" ? (overview ? "#v=services" : `#v=services&p=${state.tab}`) : overview ? "" : `#p=${state.tab}`;
+    history.replaceState(null, "", hash || location.pathname + location.search);
   }
   function setTab(id) {
     state.tab = id;
     store.set("relay-tab", id);
-    history.replaceState(null, "", id === "overview" ? location.pathname + location.search : `#p=${id}`);
+    syncHash();
     render();
     window.scrollTo({ top: 0 });
   }
-  state.tab = readTab();
+  function setView(view) {
+    if (state.view === view) return;
+    state.view = view;
+    store.set("relay-view", view);
+    syncHash();
+    render();
+  }
+  applyRoute();
 
-  function renderTabs(projects) {
+  function renderSwitch(svc) {
+    const mk = (view, label, count) => el("button", { type: "button", id: `view-${view}`, "aria-pressed": String(state.view === view), onclick: () => setView(view) },
+      label, count ? el("span", { class: "count", title: `${count} to check in Services` }, count) : null);
+    $("view-switch").replaceChildren(mk("work", "Work"), mk("services", "Services", svc.warnings.length));
+  }
+
+  function renderTabs(projects, svc) {
     const nav = $("tabs");
     nav.replaceChildren();
     const selected = projects.some((p) => p.id === state.tab) ? state.tab : "overview";
@@ -1706,14 +2188,17 @@ globalThis.RelayCore = (() => {
       "aria-selected": String(selected === id), tabindex: selected === id ? "0" : "-1", onclick: () => setTab(id),
     }, extra, label);
     const b = mk("overview", "Overview", null);
-    const allOpen = actionable(state, null, Date.now()).length;
-    if (allOpen) b.append(el("span", { class: "count", title: "Open items that need you" }, allOpen));
+    const services = state.view === "services";
+    const badge = (slug) => (services ? (slug ? svc.projects.find((x) => x.slug === slug)?.warnings.length : svc.warnings.length) : actionable(state, slug, Date.now()).length) || 0;
+    const badgeTitle = services ? "Services to check" : "Open items that need you";
+    const allOpen = badge(null);
+    if (allOpen) b.append(el("span", { class: "count", title: badgeTitle }, allOpen));
     nav.append(b);
     for (const p of projects) {
       const t = mk(p.id, p.name, el("span", { class: `dot state s-${st(p.status)}` }));
       if (p.complete) { t.classList.add("foil"); t.title = "All done for now"; }
-      const n = actionable(state, p.id, Date.now()).length;
-      if (n) t.append(el("span", { class: "count" }, n));
+      const n = badge(p.id);
+      if (n) t.append(el("span", { class: "count", title: badgeTitle }, n));
       nav.append(t);
     }
   }
@@ -1741,13 +2226,27 @@ globalThis.RelayCore = (() => {
         pr.youPct ? el("i", { class: "f-you", style: `width:${pr.youPct}%` }) : null));
   }
 
+  // The header's monthly total in the Services view: for the open project, or all projects on the overview.
+  function renderCost(p, svc) {
+    const box = $("cost");
+    const totals = p ? svc.projects.find((x) => x.slug === p.id)?.totals : svc.totals;
+    box.hidden = state.view !== "services" || !totals || !svc.projects.length;
+    if (box.hidden) { box.replaceChildren(); return; }
+    box.title = `${p ? p.name : "All projects"}: monthly cost of the services, per currency (not converted)`;
+    box.replaceChildren(el("span", { class: "p-nums" },
+      el("span", { class: "p-done" }, totals.length ? formatTotals(totals) : "No costs set"),
+      totals.length ? [" ", el("span", { class: "p-sep" }, "/ month")] : null));
+  }
+
   function render() {
     const projects = orderedProjects(state, Date.now());
+    const svc = servicesSummary(state, Date.now());
     // A linked project may simply not have arrived yet; only give up on it once both collections
     // that define projects have loaded.
     if (state.tab !== "overview" && state.loaded.projects && state.loaded.streams && !projects.some((p) => p.id === state.tab)) state.tab = "overview";
     const focusId = document.activeElement?.id;
-    renderTabs(projects);
+    renderTabs(projects, svc);
+    renderSwitch(svc);
     renderUsage();
     const main = $("main");
     main.replaceChildren();
@@ -1764,9 +2263,11 @@ globalThis.RelayCore = (() => {
       el("span", { class: `dot state s-${st(p.status)}`, title: STATE_LABEL[st(p.status)] }),
       el("span", { class: "name" }, p.name),
     ] : []));
-    renderProgress(p);
+    const services = state.view === "services";
+    if (services) $("progress").hidden = true; else renderProgress(p);
+    renderCost(p, svc);
     main.setAttribute("aria-labelledby", `tab-${p ? p.id : "overview"}`);
-    main.append(p ? projectView(p) : overview());
+    main.append(services ? (p ? servicesProject(p, svc) : servicesOverview(svc)) : p ? projectView(p) : overview());
     // Re-rendering replaces every node; put focus back where it was.
     const f = focusId && document.getElementById(focusId);
     if (f) {
@@ -1785,14 +2286,14 @@ globalThis.RelayCore = (() => {
   // Avoid re-rendering under the cursor while someone is typing an answer.
   let pending = false;
   function scheduleRender() {
-    if (document.activeElement?.tagName === "TEXTAREA") {
+    if (["TEXTAREA", "INPUT", "SELECT"].includes(document.activeElement?.tagName)) {
       if (!pending) { pending = true; document.activeElement.addEventListener("blur", () => { pending = false; render(); }, { once: true }); }
       return;
     }
     render();
   }
 
-  window.addEventListener("hashchange", () => { state.tab = readTab(); render(); });
+  window.addEventListener("hashchange", () => { applyRoute(); render(); });
   // Keyboard: Left/Right move to the previous/next tab and select it, Home/End jump to the ends.
   $("tabs").addEventListener("keydown", (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return; // leave browser shortcuts alone
@@ -1840,6 +2341,7 @@ globalThis.RelayCore = (() => {
       state.needs = rows;
     });
     sub("archive", (rows) => { state.archive = rows.filter((r) => r.id !== "_lock"); });
+    sub("services", (rows) => { state.services = rows; });
     db.collection("usage").onSnapshot((snap) => {
       state.usage = docs("usage", snap);
       renderUsage();

@@ -12,7 +12,7 @@
     "check": "node scripts/check.mjs",
     "demo": "node demo/build.mjs",
     "test": "npm run test:unit && npm run test:e2e",
-    "test:unit": "node --test test/archive.test.mjs test/contrast.test.mjs test/digest.test.mjs test/format.test.mjs test/history.test.mjs test/incoming.test.mjs test/needs.test.mjs test/progress.test.mjs test/projects.test.mjs test/quiet.test.mjs test/usage.test.mjs",
+    "test:unit": "node --test test/archive.test.mjs test/contrast.test.mjs test/digest.test.mjs test/format.test.mjs test/history.test.mjs test/incoming.test.mjs test/needs.test.mjs test/progress.test.mjs test/projects.test.mjs test/quiet.test.mjs test/scan-services.test.mjs test/services.test.mjs test/usage.test.mjs",
     "test:e2e": "node --test --test-concurrency=1 test/e2e.test.mjs test/behaviour.test.mjs"
   }
 }

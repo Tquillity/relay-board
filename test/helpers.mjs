@@ -59,8 +59,8 @@ export const need = (fields = {}) => ({
 export const project = (fields = {}) => ({ id: "demo", name: "Demo", updatedAt: before(5 * MINUTE), ...fields });
 
 /** Board data with every collection present. */
-export const board = ({ projects = [], streams = [], needs = [], archive = [], usage = [] } = {}) =>
-  ({ projects, streams, needs, archive, usage });
+export const board = ({ projects = [], streams = [], needs = [], archive = [], usage = [], services = [] } = {}) =>
+  ({ projects, streams, needs, archive, usage, services });
 
 /** A step with a state and an optional size. */
 export const step = (state, size, fields = {}) => ({ title: `${state} ${size || "-"}`, state, ...(size ? { size } : {}), ...fields });

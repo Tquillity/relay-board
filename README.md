@@ -21,9 +21,12 @@ It is a single-file [claude.ai artifact](https://support.anthropic.com/en/articl
 - **Quiet-chat detection.** A chat that says it's working but hasn't reported in a while is flagged as quiet, then as possibly stopped.
 - **Plan usage.** Weekly and 5-hour usage bars for the Claude plan, with an even-pace marker and a projection to the weekly reset.
 - **History that never fills up.** Done items fold away, move to a per-project History after 7 days, and after 30 days are condensed into one archive record per project and month.
+- **Services and their cost.** A second view, switched with Work | Services in the header, shows for each project which third-party services it uses (payments, database, hosting, email and so on) and what they cost per month, with totals per currency (never converted). It warns about a removed service that still costs money, a bill that jumped, and a cost nobody has confirmed for 45 days. You can type in a cost for any service; a scanner run fills in the rest.
 - **Foldable sections** that remember what you folded, a cross-project activity feed, and a layout that works on a phone.
 
 ![Since you last looked, opened](docs/screenshots/digest.png)
+
+![Services: what to check, every project's services with their monthly cost, and the same grouped by provider](docs/screenshots/services.png)
 
 ![A project tab: progress in the header, and workstreams with sized steps](docs/screenshots/project.png)
 
@@ -67,8 +70,8 @@ npm run test:e2e    # the demo and scripted scenarios in headless Chrome
 The tests use Node's built-in test runner, so there is still nothing to install.
 
 - **Unit tests** load the page's core script straight from `index.html` into a sandbox with no DOM, and check it against the rules in [`PROTOCOL.md`](PROTOCOL.md). They cover progress weights and rounding (including a randomised check that done plus waiting-on-you never passes 100%), when a project counts as finished, quiet thresholds, needs, snoozing and stuck answers, History and archiving, usage projections, and the digest. Malformed data, unsafe links and exact boundaries are covered too, as is text contrast (WCAG AA). Every unit test runs against a fixed clock.
-- **End-to-end tests** build the demo, load it in headless Chrome and check what renders: tabs and badges, the progress header, the foil on the finished project, the digest, and History.
-- **Behaviour tests** run the real page against a scriptable fake database ([`test/harness.js`](test/harness.js)) and act on it like a viewer: another chat resuming a card while it is being archived, a slow save that then fails, a live connection dropping, data arriving out of order, malformed docs, reopening and resending answers, and keyboard use of the tabs.
+- **End-to-end tests** build the demo, load it in headless Chrome and check what renders: tabs and badges, the progress header, the foil on the finished project, the digest, and History. They also cover the Services overview and a project's services.
+- **Behaviour tests** run the real page against a scriptable fake database ([`test/harness.js`](test/harness.js)) and act on it like a viewer: another chat resuming a card while it is being archived, a slow save that then fails, a live connection dropping, data arriving out of order, malformed docs, reopening and resending answers, and keyboard use of the tabs. One scenario enters, changes and clears a service cost against a slow store.
 
 The browser tests are skipped if Chrome isn't found. Set `CHROME=/path/to/chrome` to point at one.
 

@@ -115,6 +115,88 @@
         },
       },
     },
+    // Third-party services per project: costs from billing (autoCost) or typed in by the viewer (manualCost).
+    services: {
+      "acme-storefront": {
+        project: "acme-storefront", scannedAt: at(1 * D), updatedAt: at(1 * D),
+        items: {
+          stripe: {
+            name: "Stripe", category: "payments", purpose: "Card payments at checkout", dashboardUrl: "https://dashboard.stripe.com",
+            evidence: ["package.json: stripe", ".env.example: PAYMENT_SECRET_KEY", "src/checkout/pay.ts: process.env.PAYMENT_WEBHOOK_SECRET"],
+            envVars: ["PAYMENT_SECRET_KEY", "PAYMENT_WEBHOOK_SECRET"], manualCost: { monthly: 0, currency: "USD", at: at(6 * D) },
+          },
+          vercel: {
+            name: "Vercel", category: "hosting", purpose: "Hosts the storefront", plan: "Pro", dashboardUrl: "https://vercel.com/dashboard",
+            evidence: ["vercel.json", "package.json: @vercel/analytics"], envVars: ["VERCEL_URL"],
+            autoCost: { monthly: 20, currency: "USD", at: at(1 * D), lastMonth: 20, note: "from the hosting invoice" },
+          },
+          supabase: {
+            name: "Supabase", category: "database", purpose: "Orders and catalogue", plan: "Pro", dashboardUrl: "https://supabase.com/dashboard",
+            evidence: ["package.json: @supabase/supabase-js", "supabase/config.toml", ".env.example: SUPABASE_URL"], envVars: ["SUPABASE_ANON_KEY", "SUPABASE_URL"],
+            autoCost: { monthly: 58, currency: "USD", at: at(1 * D), lastMonth: 25, note: "includes a compute add-on" },
+          },
+          resend: {
+            name: "Resend", category: "email", purpose: "Order confirmation emails", dashboardUrl: "https://resend.com",
+            evidence: ["package.json: resend"], envVars: ["MAIL_API_KEY"], manualCost: { monthly: 20, currency: "USD", at: at(3 * D) },
+          },
+          sentry: {
+            name: "Sentry", category: "monitoring", purpose: "Error reports", dashboardUrl: "https://sentry.io",
+            evidence: ["package.json: @sentry/nextjs", ".env.example: SENTRY_DSN"], envVars: ["SENTRY_DSN"],
+          },
+          algolia: {
+            name: "Algolia", category: "search", purpose: "Product search before the in-house index", dashboardUrl: "https://dashboard.algolia.com",
+            evidence: ["package.json: algoliasearch (removed)"], envVars: ["SEARCH_APP_ID"], removed: true,
+            manualCost: { monthly: 29, currency: "USD", at: at(10 * D) },
+          },
+        },
+      },
+      "weather-cli": {
+        project: "weather-cli", scannedAt: at(2 * D), updatedAt: at(2 * D),
+        items: {
+          "github-actions": {
+            name: "GitHub Actions", category: "ci", purpose: "Tests and releases", dashboardUrl: "https://github.com/features/actions",
+            evidence: [".github/workflows/release.yml"], envVars: [], manualCost: { monthly: 0, currency: "USD", at: at(14 * D) },
+          },
+          upstash: {
+            name: "Upstash", category: "database", purpose: "Shared forecast cache", dashboardUrl: "https://console.upstash.com",
+            evidence: ["package.json: @upstash/redis", ".env.example: CACHE_REST_URL"], envVars: ["CACHE_REST_URL", "CACHE_REST_TOKEN"],
+            manualCost: { monthly: 0, currency: "EUR", at: at(14 * D) },
+          },
+        },
+      },
+      "recipe-api": {
+        project: "recipe-api", scannedAt: at(5 * D), updatedAt: at(5 * D),
+        items: {
+          render: {
+            name: "Render", category: "hosting", purpose: "Runs the API", plan: "Starter", dashboardUrl: "https://dashboard.render.com",
+            evidence: ["render.yaml"], envVars: ["PORT"], autoCost: { monthly: 7, currency: "USD", at: at(2 * D), lastMonth: 7 },
+          },
+          neon: {
+            name: "Neon", category: "database", purpose: "Recipes and users", plan: "Launch", dashboardUrl: "https://console.neon.tech",
+            evidence: ["package.json: @neondatabase/serverless", ".env.example: DATABASE_URL"], envVars: ["DATABASE_URL"],
+            manualCost: { monthly: 199, currency: "SEK", at: at(12 * D) },
+          },
+          anthropic: {
+            name: "Anthropic", category: "ai", purpose: "Recipe suggestions", dashboardUrl: "https://console.anthropic.com",
+            evidence: ["package.json: @anthropic-ai/sdk", ".env.example: LLM_API_KEY"], envVars: ["LLM_API_KEY"],
+            autoCost: { monthly: 12.4, currency: "USD", at: at(1 * D), lastMonth: 11, note: "usage this month so far" },
+          },
+          cloudflare: {
+            name: "Cloudflare", category: "domain", purpose: "DNS for the API domain", dashboardUrl: "https://dash.cloudflare.com",
+            evidence: ["wrangler.toml"], envVars: [], manualCost: { monthly: 9, currency: "EUR", at: at(60 * D) },
+          },
+        },
+      },
+      "garden-planner": {
+        project: "garden-planner", scannedAt: at(9 * D), updatedAt: at(9 * D),
+        items: {
+          netlify: {
+            name: "Netlify", category: "hosting", purpose: "Static site", dashboardUrl: "https://app.netlify.com",
+            evidence: ["netlify.toml"], envVars: [], manualCost: { monthly: 0, currency: "USD", at: at(9 * D) },
+          },
+        },
+      },
+    },
     usage: {},
   };
   // A week of plan-usage readings, so the bars and week curve have something to show.

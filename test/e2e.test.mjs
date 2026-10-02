@@ -39,6 +39,21 @@ const tabs = (html) => between(html, 'id="tabs"', "</nav>").split("<button").sli
 const cards = (html) => [...html.matchAll(/<article class="([^"]*)">([\s\S]*?)<\/article>/g)].map((m) => ({
   cls: m[1], text: text(m[2]), name: text(m[2].match(/<h3>([\s\S]*?)<\/h3>/)?.[1] || ""),
 }));
+/** The Work | Services switch: [{ label, pressed }] with the count badge left out. */
+const viewSwitch = (html) => between(html, 'id="view-switch"', "</div>").split("<button").slice(1).map((b) => ({
+  label: text(b.slice(b.indexOf(">") + 1).replace(/<span class="count"[\s\S]*?<\/span>/, "")),
+  pressed: /aria-pressed="true"/.test(b.slice(0, b.indexOf(">"))),
+  count: Number(b.match(/class="count"[^>]*>(\d+)</)?.[1] || 0),
+}));
+/** Asserts that every part appears in `haystack`, in the given order. */
+const inOrder = (haystack, parts) => {
+  let at = 0;
+  for (const part of parts) {
+    const i = haystack.indexOf(part, at);
+    assert.ok(i >= 0, `expected "${part}" after position ${at} in: ${haystack.slice(at, at + 400)}`);
+    at = i + part.length;
+  }
+};
 const header = (html) => text(between(html, 'id="progress"', "</header>").replace(/^[^>]*>/, ""));
 
 if (!chrome) {
@@ -50,6 +65,8 @@ if (!chrome) {
     garden: "#p=garden-planner",
     since: "?open=since",
     history: "?open=history#p=acme-storefront",
+    services: "#v=services",
+    servicesAcme: "#v=services&p=acme-storefront",
   };
   const dom = {};
   let dir;
@@ -146,5 +163,46 @@ if (!chrome) {
     assert.match(hist, /History .*3/);
     for (const title of ["Promo banner", "Passwordless login", "Point shop domain at new host"]) assert.ok(hist.includes(title), title);
     assert.match(hist, /PR #98/);
+  });
+
+  test("the Work view is the default and the Services switch shows the warning count", () => {
+    assert.deepEqual(viewSwitch(dom.overview), [{ label: "Work", pressed: true, count: 0 }, { label: "Services", pressed: false, count: 3 }]);
+    assert.equal(header(dom.acme), "35% / 100% − 24%");
+    assert.match(dom.overview, /<span class="progress" id="cost" hidden/);
+  });
+
+  test("the Services overview lists what to check, then every project with its services and cost", () => {
+    assert.deepEqual(viewSwitch(dom.services), [{ label: "Work", pressed: false, count: 0 }, { label: "Services", pressed: true, count: 3 }]);
+    const main = text(between(dom.services, 'id="main"', "</main>"));
+    assert.match(main, /Check these 3/);
+    for (const w of ["Up from $25 to $58 a month", "No longer found in the code but still costs $29 a month", "Cost not updated for 60 days"]) assert.ok(main.includes(w), w);
+    const projects = text(between(dom.services, 'id="svc-proj-h"', "</section>"));
+    assert.match(projects, /Projects 4/);
+    inOrder(projects, ["Acme Storefront", "Supabase $58", "Sentry", "Algolia", "$127", "2 to check · 1 without a cost"]);
+    inOrder(projects, ["Recipe API", "Neon SEK 199", "€9 + SEK 199 + $19.40", "1 to check"]);
+    assert.ok(projects.includes("All projects 12 active €9 + SEK 199 + $146.40 3 to check"));
+    const providers = text(between(dom.services, 'id="svc-prov-h"', "</section>"));
+    assert.match(providers, /By provider 13/);
+    assert.match(providers, /Algolia .*no longer used/);
+  });
+
+  test("the Services header shows the monthly total per currency, and the tabs show warning counts", () => {
+    assert.equal(text(between(dom.services, 'id="cost"', "</header>").replace(/^[^>]*>/, "")), "€9 + SEK 199 + $146.40 / month");
+    const counts = Object.fromEntries(tabs(dom.services).map((t) => [t.label, t.count]));
+    assert.deepEqual(counts, { "Overview": 3, "Acme Storefront": 2, "Weather CLI": 0, "Recipe API": 1, "Garden Planner": 0 });
+  });
+
+  test("a project's Services tab groups its services by category with their costs and warnings", () => {
+    assert.ok(tabs(dom.servicesAcme).find((t) => t.label === "Acme Storefront").selected);
+    assert.equal(text(between(dom.servicesAcme, 'id="cost"', "</header>").replace(/^[^>]*>/, "")), "$127 / month");
+    const main = text(between(dom.servicesAcme, 'id="main"', "</main>"));
+    assert.match(main, /Services .*5/);
+    for (const category of ["Payments", "Databases", "Hosting", "Email", "Monitoring"]) assert.ok(main.includes(category), category);
+    inOrder(main, ["Stripe", "Card payments at checkout", "PAYMENT_SECRET_KEY", "Found in 3 places", "$0/mo", "entered by you 6d ago"]);
+    inOrder(main, ["Supabase", "Up from $25 to $58 a month", "$58/mo", "from billing 1d ago · last month $25 · includes a compute add-on"]);
+    assert.match(main, /Sentry .*Cost not set .*Set cost/);
+    // The removed service still costs money, so its fold is open.
+    assert.match(main, /Hide 1 no longer found in the code/);
+    inOrder(main, ["Algolia", "No longer found in the code but still costs $29 a month", "$29/mo", "entered by you 10d ago"]);
   });
 });

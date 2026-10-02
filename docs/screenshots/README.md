@@ -19,6 +19,7 @@ shot() {
 shot overview 1280,1500 ""
 shot project  1280,1500 "#p=acme-storefront"
 shot digest   1280,720  "?open=since"
+shot services 1280,1000 "#v=services"
 shot history  1280,560  "?open=history&only=history#p=acme-storefront"
 ```
 

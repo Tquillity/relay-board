@@ -15,7 +15,7 @@
   };
 
   // ---- The fake store ----
-  const DATA = { projects: {}, streams: {}, needs: {}, archive: {}, usage: {} };
+  const DATA = { projects: {}, streams: {}, needs: {}, archive: {}, usage: {}, services: {} };
   const writes = [];                              // [op, path, data?] for every write, in order
   const hooks = {
     subscribe: (c, s) => s.deliver(),             // when a listener gets its first snapshot
@@ -223,6 +223,49 @@
         await until(() => DATA.needs["p-pick"].answerState === "answered");
         await wait(50);
         return { before, doc: DATA.needs["p-pick"], after: text(needLi("Pick one")) };
+      };
+    },
+
+    // Entering, changing and clearing the monthly cost of a service, with a slow store.
+    async "services-cost"() {
+      DATA.projects.p = project("Proj");
+      DATA.services.p = { project: "p", scannedAt: at(H), updatedAt: at(H), items: { stripe: { name: "Stripe", category: "payments", evidence: [], envVars: [] } } };
+      hooks.beforeUpdate = () => wait(150);
+      const row = () => q(".svc-row");
+      const typeAmount = (value) => {
+        const input = q(".cost-edit input");
+        input.value = value;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      return async () => {
+        await until(() => button("Set cost"));
+        const initial = text(q("#main"));
+        button("Set cost").click();
+        await until(() => q(".cost-edit input"));
+        typeAmount("-3");
+        button("Save").click();
+        await wait(30);
+        const invalid = { text: text(row()), writes: writes.length };
+        typeAmount("12.5");
+        button("Save").click();
+        await wait(50);
+        const during = { text: text(row()), disabled: [...row().querySelectorAll(".btn")].every((b) => b.disabled) };
+        await until(() => DATA.services.p.items.stripe.manualCost);
+        await wait(100);
+        const saved = { text: text(row()), header: text(q("#cost")), patch: writes[0], writes: writes.length };
+        hooks.beforeUpdate = async () => {};
+        button("Change cost").click();
+        await until(() => button("Free"));
+        button("Free").click();
+        await until(() => DATA.services.p.items.stripe.manualCost?.monthly === 0);
+        await wait(50);
+        const free = { text: text(row()), cost: DATA.services.p.items.stripe.manualCost };
+        button("Change cost").click();
+        await until(() => button("Clear"));
+        button("Clear").click();
+        await until(() => DATA.services.p.items.stripe.manualCost === null);
+        await wait(50);
+        return { initial, invalid, during, saved, free, cleared: { text: text(row()), header: text(q("#cost")) } };
       };
     },
 

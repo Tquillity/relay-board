@@ -23,6 +23,7 @@ const SCENARIOS = {
   saving: "",
   "stuck-relay": "",
   keyboard: "",
+  "services-cost": "#v=services&p=p",
 };
 
 function buildPage() {
@@ -150,5 +151,35 @@ if (!chrome) {
       const { focused, selected, labelledBy, tabindex: t } = r[step];
       assert.deepEqual({ focused, selected, labelledBy, tabindex: t }, moved(id, tabindex), step);
     }
+  });
+
+  test("entering a service cost writes the expected patch and shows a saving state, then the new cost", () => {
+    const r = result("services-cost");
+    assert.match(r.initial, /Stripe/);
+    assert.match(r.initial, /Cost not set/);
+    // An invalid amount is refused on the row, without a write.
+    assert.ok(r.invalid.text.includes("Enter an amount of 0 or more."));
+    assert.equal(r.invalid.writes, 0);
+    assert.equal(r.during.disabled, true);
+    assert.match(r.during.text, /Saving…/);
+    assert.equal(r.saved.writes, 1, "the save is sent once");
+    const [op, path, data] = r.saved.patch;
+    assert.deepEqual([op, path], ["update", "services/p"]);
+    assert.deepEqual(Object.keys(data), ["items", "updatedAt"]);
+    assert.deepEqual(Object.keys(data.items), ["stripe"]);
+    assert.deepEqual(data.items.stripe.manualCost, { monthly: 12.5, currency: "USD", at: data.items.stripe.manualCost.at });
+    assert.ok(Date.parse(data.items.stripe.manualCost.at) > 0);
+    assert.ok(r.saved.text.includes("$12.50/mo"));
+    assert.match(r.saved.text, /entered by you just now/);
+    assert.doesNotMatch(r.saved.text, /Saving…/);
+    assert.equal(r.saved.header, "$12.50 / month");
+  });
+
+  test("a service can be marked free and its typed cost cleared again", () => {
+    const r = result("services-cost");
+    assert.equal(r.free.cost.monthly, 0);
+    assert.ok(r.free.text.includes("$0/mo"));
+    assert.match(r.cleared.text, /Cost not set/);
+    assert.equal(r.cleared.header, "No costs set");
   });
 });
