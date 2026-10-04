@@ -24,6 +24,7 @@ const SCENARIOS = {
   "stuck-relay": "",
   keyboard: "",
   "services-cost": "#v=services&p=p",
+  "stream-fold": "#p=p",
 };
 
 function buildPage() {
@@ -181,5 +182,33 @@ if (!chrome) {
     assert.ok(r.free.text.includes("$0/mo"));
     assert.match(r.cleared.text, /Cost not set/);
     assert.equal(r.cleared.header, "No costs set");
+  });
+
+  test("a workstream folds to one summary line, stays folded, and unfolds again", () => {
+    const r = result("stream-fold");
+    assert.equal(r.start.expanded, "true");
+    assert.ok(r.start.hasSteps && r.start.hasSide);
+    assert.match(r.start.controls, /^tg-stream-p--build-body$/);
+    assert.equal(r.collapsed.expanded, "false");
+    assert.equal(r.collapsed.controls, null);
+    assert.equal(r.collapsed.hasSteps, false);
+    assert.equal(r.collapsed.hasSide, false);
+    assert.equal(r.collapsed.focused, "tg-stream-p--build", "focus stays on the toggle");
+    assert.ok(r.collapsed.text.includes("3/7 done · 4 left · 1 for you · 1 blocker"), r.collapsed.text);
+    assert.doesNotMatch(r.collapsed.text, /Wire up|Waiting on a key|Recently finished/);
+    assert.equal(r.collapsed.blockerChip, "1 blocker");
+    assert.equal(r.collapsed.blockerBad, true);
+    assert.match(r.collapsed.emptyText, /No steps recorded/, "the other panel stays open");
+    assert.deepEqual(JSON.parse(r.collapsed.saved), { "stream:p--build": false });
+    // A live update re-renders the page; the panel stays folded.
+    assert.equal(r.afterUpdate.expanded, "false");
+    assert.equal(r.afterUpdate.hasSteps, false);
+    assert.deepEqual([r.both.first, r.both.second], ["false", "false"]);
+    assert.match(r.both.secondText, /No steps/);
+    assert.doesNotMatch(r.both.secondText, /No steps recorded/);
+    assert.equal(r.expanded.expanded, "true");
+    assert.ok(r.expanded.hasSteps && r.expanded.hasSide);
+    assert.equal(r.expanded.focused, "tg-stream-p--build");
+    assert.deepEqual(JSON.parse(r.saved), { "stream:p--build": true, "stream:p--empty": true });
   });
 });

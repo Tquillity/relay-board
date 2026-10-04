@@ -318,8 +318,16 @@
   .workstreams { display: flex; flex-direction: column; gap: var(--gap); }
   .stream { display: flex; flex-direction: column; gap: 10px; border-left: 3px solid var(--c); }
   .stream-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; align-items: baseline; }
-  .stream-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
+  .stream-head h3 { margin: 0; font-size: 16px; font-weight: 700; min-width: 0; }
   .stream-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-sm); color: var(--muted); align-items: baseline; }
+  .stream-toggle { all: unset; box-sizing: border-box; display: inline-flex; align-items: baseline; gap: 8px; cursor: pointer; border-radius: 6px; }
+  .stream-toggle:hover { color: var(--accent); }
+  .stream-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .stream-toggle .chev { display: inline-block; width: 10px; color: var(--muted); font-size: 11px; transition: transform 0.15s ease; }
+  .stream-toggle[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+  @media (prefers-reduced-motion: reduce) { .stream-toggle .chev { transition: none; } }
+  .stream-sum { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; font-size: var(--fs-sm); color: var(--muted); }
+  .stream-body { display: flex; flex-direction: column; gap: 10px; }
   .current { margin: 0; max-width: 90ch; }
   .callout { display: flex; gap: 10px; align-items: baseline; padding: 6px 12px; border-radius: 8px; background: var(--wait-soft); color: var(--wait); font-size: var(--fs-sm); }
   .callout.bad { background: var(--bad-soft); color: var(--bad); }
@@ -569,6 +577,18 @@ globalThis.RelayCore = (() => {
       return { cls: "quiet", label: `Still waiting after ${span(age)}` };
     }
     return null;
+  }
+
+  // What a collapsed workstream shows: step counts and blockers. Malformed steps and blockers are ignored.
+  function streamCounts(s) {
+    const steps = (Array.isArray(s?.steps) ? s.steps : []).filter((x) => x && typeof x === "object");
+    const blockers = (Array.isArray(s?.blockers) ? s.blockers : []).filter((x) => x && typeof x === "object");
+    const done = steps.filter((x) => x.state === "done").length;
+    return {
+      done, left: steps.length - done, total: steps.length,
+      you: steps.filter((x) => x.by === "you" && x.state !== "done").length,
+      blockers: blockers.length, highBlockers: blockers.filter((x) => x.severity === "high").length,
+    };
   }
 
   // ---- Needs ----------------------------------------------------------
@@ -917,7 +937,7 @@ globalThis.RelayCore = (() => {
     // basics and incoming docs
     st, safeUrl, appUrl, ts, num, clip, isFuture, ago, span, normalize,
     // projects and streams
-    streamsFor, allProjectSlugs, projectInfo, orderedProjects, quietness,
+    streamsFor, allProjectSlugs, projectInfo, orderedProjects, quietness, streamCounts,
     // needs and progress
     isSnoozed, answerState, openNeeds, actionable, relayStuck, needsGroups, progressFor, progressColor,
     // history and archiving
@@ -939,7 +959,7 @@ globalThis.RelayCore = (() => {
   const {
     MINUTE, HOUR, DAY, WEEK, TICK, CLOCK_SKEW, DIGEST_MIN_AGE, FEED_PAGE, SHOW_DAYS, ARCHIVE_LEASE_MS, STATE_LABEL,
     st, safeUrl, appUrl, ts, num, isFuture, ago, span, normalize,
-    orderedProjects, quietness, isSnoozed, answerState, actionable, relayStuck, needsGroups, progressFor, progressColor,
+    orderedProjects, quietness, streamCounts, isSnoozed, answerState, actionable, relayStuck, needsGroups, progressFor, progressColor,
     isOld, streamDoneAt, historyFor, archiveStamp, planArchive, projectWeek, staleReadings, allActivity, digestData,
     SERVICE_CATEGORIES, SERVICE_CATEGORY_LABEL, formatMoney, formatTotals, servicesSummary,
   } = globalThis.RelayCore;
@@ -984,7 +1004,7 @@ globalThis.RelayCore = (() => {
   // Fold/unfold choices (sections, the usage chart, "Show N ..." lists) survive reloads.
   // Drafts and menus don't.
   const OPEN_KEY = "relay-open";
-  const PERSIST = /^(sec:|finished-|history-|snoozed-|done-|removed-)/;
+  const PERSIST = /^(sec:|stream:|finished-|history-|snoozed-|done-|removed-)/;
   try {
     const saved = JSON.parse(store.get(OPEN_KEY) || "{}");
     if (saved && typeof saved === "object") {
@@ -1409,18 +1429,35 @@ globalThis.RelayCore = (() => {
     const done = steps.filter((x) => x.state === "done").length;
     const session = s.session || {};
     const chatLink = appUrl(session.link);
+    const key = `stream:${s.id || s.title}`;
+    const open = isOpen(key, true);
+    const bodyId = `${toggleId(key)}-body`;
     const panel = el("section", { class: `panel stream s-${ss}`, "aria-label": s.title || "Workstream" });
-    panel.append(el("div", { class: "stream-head" },
-      el("h3", {}, s.title || "Workstream"),
-      el("div", { class: "btn-row" }, q ? el("span", { class: `chip ${q.cls}` }, q.label) : null, el("span", { class: "chip state" }, STATE_LABEL[ss]))));
-    panel.append(el("div", { class: "stream-meta" },
+    const chips = el("div", { class: "btn-row" }, q ? el("span", { class: `chip ${q.cls}` }, q.label) : null, el("span", { class: "chip state" }, STATE_LABEL[ss]));
+    const toggle = el("button", { type: "button", class: "stream-toggle", id: toggleId(key), "aria-expanded": String(open), onclick: () => toggleOpen(key, true) },
+      el("span", { class: "chev", "aria-hidden": "true" }, "\u25BE"), s.title || "Workstream");
+    if (open) toggle.setAttribute("aria-controls", bodyId);
+    const head = el("div", { class: "stream-head" }, el("h3", {}, toggle));
+    if (!open) {
+      const c = streamCounts(s);
+      const parts = [c.total ? `${c.done}/${c.total} done · ${c.left} left` : "No steps"];
+      if (c.you) parts.push(`${c.you} for you`);
+      head.append(el("span", { class: "stream-sum" }, parts.join(" · "),
+        c.blockers ? el("span", {}, " · ", el("span", { class: `chip ${c.highBlockers ? "high" : "quiet"}` }, `${c.blockers} blocker${c.blockers === 1 ? "" : "s"}`)) : null));
+    }
+    head.append(chips);
+    panel.append(head);
+    if (!open) return panel;
+    const body = el("div", { class: "stream-body", id: bodyId });
+    panel.append(body);
+    body.append(el("div", { class: "stream-meta" },
       s.tool && s.tool !== "Claude Code" ? el("span", { class: "chip tool" }, s.tool) : null,
       s.agent ? el("span", {}, s.agent) : null,
       session.title ? el("span", {}, "Chat: ", chatLink ? el("a", { href: chatLink, title: "Opens the chat in the Claude app" }, session.title) : el("span", { class: "mono" }, session.title)) : null,
       prChip(s.pr),
       el("span", {}, "Updated ", timeEl(s.updatedAt))));
-    panel.append(el("p", { class: "current" }, s.currentTask || "No active task"));
-    if (s.waitingOn) panel.append(el("div", { class: "callout" }, el("strong", {}, "Waiting on"), s.waitingOn));
+    body.append(el("p", { class: "current" }, s.currentTask || "No active task"));
+    if (s.waitingOn) body.append(el("div", { class: "callout" }, el("strong", {}, "Waiting on"), s.waitingOn));
     const cols = el("div", { class: "cols" });
     const left = el("div", {});
     left.append(el("h4", { class: "sub-h" }, `Steps ${steps.length ? `· ${done}/${steps.length}` : ""}`));
@@ -1444,7 +1481,7 @@ globalThis.RelayCore = (() => {
       recent.length ? el("ul", { class: "list" }, recent.map((x) => el("li", {}, x.url ? link(x.text, x.url) : el("span", {}, x.text), timeEl(x.at))))
         : el("p", { class: "empty" }, "Nothing yet.")));
     cols.append(side);
-    panel.append(cols);
+    body.append(cols);
     return panel;
   }
 

@@ -269,6 +269,56 @@
       };
     },
 
+    // Folding a workstream panel: a one-line summary, remembered across re-renders and reloads.
+    async "stream-fold"() {
+      DATA.projects.p = project("Proj");
+      DATA.streams["p--build"] = stream("p", "Build the thing", {
+        steps: [
+          { title: "Plan", state: "done" }, { title: "Scaffold", state: "done" }, { title: "Wire up", state: "done" },
+          { title: "Write tests", state: "active" }, { title: "Review", state: "todo", by: "you" }, { title: "Ship", state: "todo" }, { title: "Announce", state: "todo" },
+        ],
+        blockers: [{ text: "Waiting on a key", severity: "high" }],
+      });
+      DATA.streams["p--empty"] = stream("p", "Empty plan");
+      return async () => {
+        await until(() => q("#tg-stream-p--build"));
+        const toggle = () => q("#tg-stream-p--build");
+        const panel = () => toggle().closest(".stream");
+        const snap = () => ({
+          expanded: toggle().getAttribute("aria-expanded"),
+          controls: toggle().getAttribute("aria-controls"),
+          hasSteps: !!panel().querySelector(".steps"),
+          hasSide: !!panel().querySelector(".side"),
+          text: text(panel()),
+          focused: document.activeElement?.id || null,
+        });
+        const start = snap();
+        toggle().focus();
+        toggle().click();
+        await wait(50);
+        const collapsed = snap();
+        collapsed.blockerChip = text(q(".stream-sum .chip", panel()));
+        collapsed.blockerBad = q(".stream-sum .chip", panel()).classList.contains("high");
+        collapsed.emptyText = text(q("#tg-stream-p--empty").closest(".stream"));
+        collapsed.saved = localStorage.getItem("relay-open");
+        // Another chat updates the stream: the panel stays folded.
+        DATA.streams["p--build"].currentTask = "Something new";
+        fire("streams");
+        await wait(80);
+        const afterUpdate = snap();
+        // Collapsing the second panel doesn't touch the first, and the choice is stored per stream.
+        q("#tg-stream-p--empty").click();
+        await wait(50);
+        const both = { first: snap().expanded, second: q("#tg-stream-p--empty").getAttribute("aria-expanded"), secondText: text(q("#tg-stream-p--empty").closest(".stream")) };
+        q("#tg-stream-p--empty").click();
+        await wait(50);
+        toggle().click();
+        await wait(50);
+        const expanded = snap();
+        return { start, collapsed, afterUpdate, both, expanded, saved: localStorage.getItem("relay-open") };
+      };
+    },
+
     // Keyboard use of the project tabs.
     async keyboard() {
       DATA.projects.a = { ...project("Alpha"), order: 1 };
