@@ -607,6 +607,7 @@
   @media (prefers-reduced-motion: reduce) { .stream-toggle .chev { transition: none; } }
   .stream-sum { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; font-size: var(--fs-sm); color: var(--muted); }
   .stream-body { display: flex; flex-direction: column; gap: 10px; }
+  .stream-updated { font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
   .current { margin: 0; max-width: 90ch; }
   .callout { display: flex; gap: 10px; align-items: baseline; padding: 6px 12px; border-radius: 8px; background: var(--wait-soft); color: var(--wait); font-size: var(--fs-sm); }
   .callout.bad { background: var(--bad-soft); color: var(--bad); }
@@ -1712,7 +1713,10 @@ globalThis.RelayCore = (() => {
     const open = isOpen(key, true);
     const bodyId = `${toggleId(key)}-body`;
     const panel = el("section", { class: `panel stream s-${ss}`, "aria-label": s.title || "Workstream" });
-    const chips = el("div", { class: "btn-row" }, q ? el("span", { class: `chip ${q.cls}` }, q.label) : null, el("span", { class: "chip state" }, STATE_LABEL[ss]));
+    // When the chat last wrote, shown folded or not.
+    const chips = el("div", { class: "btn-row" },
+      ts(s.updatedAt) ? el("span", { class: "stream-updated" }, "Updated ", timeEl(s.updatedAt)) : null,
+      q ? el("span", { class: `chip ${q.cls}` }, q.label) : null, el("span", { class: "chip state" }, STATE_LABEL[ss]));
     const toggle = el("button", { type: "button", class: "stream-toggle", id: toggleId(key), "aria-expanded": String(open), onclick: () => toggleOpen(key, true) },
       el("span", { class: "chev", "aria-hidden": "true" }, "\u25BE"), s.title || "Workstream");
     if (open) toggle.setAttribute("aria-controls", bodyId);
@@ -1733,8 +1737,7 @@ globalThis.RelayCore = (() => {
       s.tool && s.tool !== "Claude Code" ? el("span", { class: "chip tool" }, s.tool) : null,
       s.agent ? el("span", {}, s.agent) : null,
       session.title ? el("span", {}, "Chat: ", chatLink ? el("a", { href: chatLink, title: "Opens the chat in the Claude app" }, session.title) : el("span", { class: "mono" }, session.title)) : null,
-      prChip(s.pr),
-      el("span", {}, "Updated ", timeEl(s.updatedAt))));
+      prChip(s.pr)));
     body.append(el("p", { class: "current" }, s.currentTask || "No active task"));
     if (s.waitingOn) body.append(el("div", { class: "callout" }, el("strong", {}, "Waiting on"), s.waitingOn));
     const cols = el("div", { class: "cols" });

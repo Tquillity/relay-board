@@ -150,6 +150,9 @@ if (!chrome) {
     assert.ok(main.includes("Checkout v2") && main.includes("Search speed-up"));
     // The 2-day-old footer stream is folded; the 12-day-old banner has moved to History.
     assert.match(main, /Show 1 finished workstream(?!s)/);
+    // Each workstream's header shows when its chat last wrote, so it stays visible when folded.
+    const updated = [...dom.acme.matchAll(/<span class="stream-updated">Updated <time[^>]*>([^<]*)<\/time><\/span>/g)].map((m) => `Updated ${m[1]}`);
+    assert.deepEqual(updated, ["Updated 4m ago", "Updated 50m ago"]);
   });
 
   test("a finished project shows a full green bar", () => {
