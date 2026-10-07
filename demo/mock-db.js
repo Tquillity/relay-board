@@ -8,9 +8,9 @@
 
   const DATA = {
     projects: {
-      "acme-storefront": { name: "Acme Storefront", repo: "example/acme-storefront", repoUrl: "https://github.com/example/acme-storefront", path: "~/code/acme-storefront", updatedAt: at(4 * M), pinned: true },
-      "weather-cli": { name: "Weather CLI", repo: "example/weather-cli", repoUrl: "https://github.com/example/weather-cli", path: "~/code/weather-cli", updatedAt: at(40 * M) },
-      "recipe-api": { name: "Recipe API", repo: "example/recipe-api", repoUrl: "https://github.com/example/recipe-api", path: "~/code/recipe-api", updatedAt: at(3 * H) },
+      "acme-storefront": { name: "Acme Storefront", repo: "example/acme-storefront", repoUrl: "https://github.com/example/acme-storefront", path: "~/code/acme-storefront", updatedAt: at(4 * M), pinned: true, scope: "private" },
+      "weather-cli": { name: "Weather CLI", repo: "example/weather-cli", repoUrl: "https://github.com/example/weather-cli", path: "~/code/weather-cli", updatedAt: at(40 * M), scope: "private" },
+      "recipe-api": { name: "Recipe API", repo: "example/recipe-api", repoUrl: "https://github.com/example/recipe-api", path: "~/code/recipe-api", updatedAt: at(3 * H), scope: "work" },
       "garden-planner": { name: "Garden Planner", path: "~/code/garden-planner", updatedAt: at(9 * D) },
     },
     streams: {

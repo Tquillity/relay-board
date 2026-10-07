@@ -15,9 +15,9 @@
 
   const DATA = {
     projects: {
-      "acme-storefront": { name: "Acme Storefront", repo: "example/acme-storefront", repoUrl: "https://github.com/example/acme-storefront", path: "~/code/acme-storefront", updatedAt: at(4 * M), pinned: true },
-      "weather-cli": { name: "Weather CLI", repo: "example/weather-cli", repoUrl: "https://github.com/example/weather-cli", path: "~/code/weather-cli", updatedAt: at(40 * M) },
-      "recipe-api": { name: "Recipe API", repo: "example/recipe-api", repoUrl: "https://github.com/example/recipe-api", path: "~/code/recipe-api", updatedAt: at(3 * H) },
+      "acme-storefront": { name: "Acme Storefront", repo: "example/acme-storefront", repoUrl: "https://github.com/example/acme-storefront", path: "~/code/acme-storefront", updatedAt: at(4 * M), pinned: true, scope: "private" },
+      "weather-cli": { name: "Weather CLI", repo: "example/weather-cli", repoUrl: "https://github.com/example/weather-cli", path: "~/code/weather-cli", updatedAt: at(40 * M), scope: "private" },
+      "recipe-api": { name: "Recipe API", repo: "example/recipe-api", repoUrl: "https://github.com/example/recipe-api", path: "~/code/recipe-api", updatedAt: at(3 * H), scope: "work" },
       "garden-planner": { name: "Garden Planner", path: "~/code/garden-planner", updatedAt: at(9 * D) },
     },
     streams: {
@@ -340,7 +340,7 @@
   .u-name, .eyebrow, .n-group-h, .sub-h { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
 
   /* Center the whole page column on wide screens */
-  header.top, .usage, nav.tabs, main { width: 100%; max-width: 1280px; margin-inline: auto; }
+  header.top, .usage, .scope-bar, nav.tabs, main { width: 100%; max-width: 1280px; margin-inline: auto; }
   header.top {
     position: sticky;
     top: env(safe-area-inset-top, 0px);
@@ -638,6 +638,10 @@
   .view-switch button:hover { color: var(--text); }
   .view-switch button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 
+  /* All | Work | Private filter above the project tabs, same look as the Work | Services switch */
+  .scope-bar { padding-block: 8px 0; }
+  .scope-tag { font-size: 10px; font-weight: 500; color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; line-height: 1.5; }
+
   /* Services */
   .chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
   .chip.svc { background: var(--surface-2); color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 12px; }
@@ -703,6 +707,7 @@
   </div>
 </header>
 <section class="usage" id="usage" aria-label="Claude plan usage" hidden></section>
+<div class="scope-bar" id="scope-bar"><div class="view-switch" id="scope-switch" role="group" aria-label="Project scope"></div></div>
 <nav class="tabs" id="tabs" role="tablist" aria-label="Projects"></nav>
 <main id="main" role="tabpanel"></main>
 <div class="toast" id="toast" role="status" hidden></div>
@@ -868,6 +873,24 @@ globalThis.RelayCore = (() => {
       done, left: steps.length - done, total: steps.length,
       you: steps.filter((x) => x.by === "you" && x.state !== "done").length,
       blockers: blockers.length, highBlockers: blockers.filter((x) => x.severity === "high").length,
+    };
+  }
+
+  // ---- Scope ----------------------------------------------------------
+  // A project is Work or Private (projects/<slug>.scope). Anything else, or no project doc, is Private.
+  const SCOPES = ["all", "work", "private"];
+  const projectScope = (data, slug) => (rows(data, "projects").find((p) => p.id === slug)?.scope === "work" ? "work" : "private");
+  // The board data limited to one scope. "all" (or anything unknown) returns the data unchanged.
+  // Plan usage is account-wide and never filtered.
+  function scopeData(data, scope) {
+    if (scope !== "work" && scope !== "private") return data;
+    const work = new Set(rows(data, "projects").filter((p) => p.scope === "work").map((p) => p.id));
+    const keep = (slug) => (work.has(slug) ? "work" : "private") === scope;
+    const only = (name, slugOf) => rows(data, name).filter((d) => isObj(d) && keep(slugOf(d)));
+    return {
+      ...data,
+      projects: only("projects", (d) => d.id), streams: only("streams", (d) => d.project), needs: only("needs", (d) => d.project),
+      archive: only("archive", (d) => d.project), services: only("services", (d) => d.id),
     };
   }
 
@@ -1218,6 +1241,8 @@ globalThis.RelayCore = (() => {
     st, safeUrl, appUrl, ts, num, clip, isFuture, ago, span, normalize,
     // projects and streams
     streamsFor, allProjectSlugs, projectInfo, orderedProjects, quietness, streamCounts,
+    // work / private scope
+    SCOPES, projectScope, scopeData,
     // needs and progress
     isSnoozed, answerState, openNeeds, actionable, relayStuck, needsGroups, progressFor, progressColor,
     // history and archiving
@@ -1241,12 +1266,12 @@ globalThis.RelayCore = (() => {
     st, safeUrl, appUrl, ts, num, isFuture, ago, span, normalize,
     orderedProjects, quietness, streamCounts, isSnoozed, answerState, actionable, relayStuck, needsGroups, progressFor, progressColor,
     isOld, streamDoneAt, historyFor, archiveStamp, planArchive, projectWeek, staleReadings, allActivity, digestData,
-    SERVICE_CATEGORIES, SERVICE_CATEGORY_LABEL, formatMoney, formatTotals, servicesSummary,
+    SERVICE_CATEGORIES, SERVICE_CATEGORY_LABEL, formatMoney, formatTotals, servicesSummary, SCOPES, scopeData,
   } = globalThis.RelayCore;
   const state = {
     projects: [], streams: [], needs: [], usage: [], archive: [], services: [],
     loaded: {}, fresh: {}, paused: false,
-    view: "work", tab: "overview", db: null, ready: false,
+    view: "work", scope: "all", tab: "overview", db: null, ready: false,
     open: {}, drafts: {}, saving: {}, failed: {}, feedFilter: "all", feedLimit: FEED_PAGE,
   };
 
@@ -1279,6 +1304,9 @@ globalThis.RelayCore = (() => {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch {} },
   };
+  // The board data limited to the chosen All | Work | Private scope. Every view that lists projects
+  // reads from this, never from `state` directly.
+  const scoped = () => scopeData(state, state.scope);
 
   // ---- Fold state -----------------------------------------------------
   // Fold/unfold choices (sections, the usage chart, "Show N ..." lists) survive reloads.
@@ -1347,6 +1375,9 @@ globalThis.RelayCore = (() => {
   const write = async (path, data, okMsg) => !(await save(path, data, okMsg));
 
   // ---- Needs ----------------------------------------------------------
+  const SCOPE_LABEL = { all: "All", work: "Work", private: "Private" };
+  // The message for a scope with no projects at all; null when nothing is filtered out.
+  const emptyScope = () => (state.scope !== "all" && !orderedProjects(scoped(), Date.now()).length ? `No ${state.scope} projects yet.` : null);
   const projectName = (slug) => state.projects.find((p) => p.id === slug)?.name || slug;
   const projectChip = (slug) => (!slug ? null : el("button", {
     type: "button", class: "chip project", onclick: (e) => { e.stopPropagation(); setTab(slug); },
@@ -1495,7 +1526,7 @@ globalThis.RelayCore = (() => {
   }
 
   function needsPanel(slug) {
-    const { act, answered, snoozed, done } = needsGroups(state, slug, Date.now());
+    const { act, answered, snoozed, done } = needsGroups(scoped(), slug, Date.now());
     const sec = el("section", { "aria-labelledby": `needs-h-${slug || "all"}` });
     const head = sectionHead(`sec:needs:${slug || "all"}`, `needs-h-${slug || "all"}`, "Needs you", `${act.length} open`);
     sec.append(head.h);
@@ -1541,7 +1572,7 @@ globalThis.RelayCore = (() => {
   function digest() {
     const since = lastSeen;
     if (Date.now() - since < DIGEST_MIN_AGE) return null;
-    const d = digestData(state, since, Date.now());
+    const d = digestData(scoped(), since, Date.now());
     const nUpd = d.updates.length;
     if (!nUpd && !d.newNeeds.length && !d.finished.length && !d.closed.length && !d.quiet.length) return null;
     const key = "sec:digest";
@@ -1601,7 +1632,7 @@ globalThis.RelayCore = (() => {
     return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
   }
   function activityPanel() {
-    const all = allActivity(state, Date.now());
+    const all = allActivity(scoped(), Date.now());
     if (!all.length) return null;
     const sec = el("section", { "aria-labelledby": "act-h" });
     const head = sectionHead("sec:activity", "act-h", "Activity", null);
@@ -1610,10 +1641,11 @@ globalThis.RelayCore = (() => {
     const panel = el("div", { class: "panel" });
     const slugs = [...new Set(all.map((r) => r.project))];
     const filters = el("div", { class: "filters", role: "group", "aria-label": "Filter activity by project" },
-      el("button", { type: "button", "aria-pressed": String(state.feedFilter === "all"), onclick: () => { state.feedFilter = "all"; render(); } }, "All"),
+      el("button", { type: "button", "aria-pressed": String((slugs.includes(state.feedFilter) ? state.feedFilter : "all") === "all"), onclick: () => { state.feedFilter = "all"; render(); } }, "All"),
       slugs.map((s) => el("button", { type: "button", "aria-pressed": String(state.feedFilter === s), onclick: () => { state.feedFilter = s; render(); } }, projectName(s))));
     panel.append(filters);
-    const rows = all.filter((r) => state.feedFilter === "all" || r.project === state.feedFilter);
+    const filter = slugs.includes(state.feedFilter) ? state.feedFilter : "all";
+    const rows = all.filter((r) => filter === "all" || r.project === filter);
     const feed = el("ul", { class: "feed" });
     let day = "";
     for (const r of rows.slice(0, state.feedLimit)) {
@@ -1687,12 +1719,12 @@ globalThis.RelayCore = (() => {
     const d = digest();
     if (d) frag.append(d);
     frag.append(needsPanel(null));
-    const projects = orderedProjects(state, Date.now());
+    const projects = orderedProjects(scoped(), Date.now());
     const sec = el("section", { "aria-labelledby": "proj-h" });
     const head = sectionHead("sec:projects", "proj-h", "Projects", `${projects.length}`);
     sec.append(head.h);
     if (head.open) {
-      if (!projects.length) sec.append(el("p", { class: "notice" }, "No projects yet. The first agent to work on a project adds its tab here."));
+      if (!projects.length) sec.append(el("p", { class: "notice" }, emptyScope() || "No projects yet. The first agent to work on a project adds its tab here."));
       sec.append(el("div", { class: "grid" }, projects.map(projectCard)));
     }
     frag.append(sec);
@@ -2122,7 +2154,7 @@ globalThis.RelayCore = (() => {
   function servicesOverview(svc) {
     const frag = document.createDocumentFragment();
     if (!svc.projects.length) {
-      frag.append(el("p", { class: "notice" }, "No services recorded yet."));
+      frag.append(el("p", { class: "notice" }, emptyScope() || "No services recorded yet."));
       return frag;
     }
     if (svc.warnings.length) {
@@ -2180,21 +2212,37 @@ globalThis.RelayCore = (() => {
   }
 
   // ---- Tabs + render --------------------------------------------------
-  // The address says which view (Work or Services) and which project tab is open:
-  // (none) / #p=<slug> for Work, #v=services / #v=services&p=<slug> for Services.
-  const SERVICES_ROUTE = /^#v=services(?:&p=([\w.-]+))?$/;
+  // The address says which view (Work or Services), which project tab and which scope is open, as
+  // &-joined parts in any order: v=services, p=<slug>, s=work|private. Work, the overview and All
+  // leave their part out, so #p=<slug>, #v=services&p=<slug>, #s=work and #v=services&s=private all work.
+  // An address with any of these parts is the whole truth (no s means All); an empty one falls back
+  // to what this browser last used.
+  function parseHash(hash) {
+    const out = {};
+    for (const part of hash.replace(/^#/, "").split("&")) {
+      const [k, v = ""] = part.split("=");
+      if (k === "v" && v === "services") out.view = "services";
+      else if (k === "p" && /^[\w.-]+$/.test(v)) out.tab = v;
+      else if (k === "s" && (v === "work" || v === "private")) out.scope = v;
+    }
+    return Object.keys(out).length ? out : null;
+  }
   function applyRoute() {
-    const services = location.hash.match(SERVICES_ROUTE);
-    const work = location.hash.match(/^#p=([\w.-]+)$/);
-    if (services) Object.assign(state, { view: "services", tab: services[1] || "overview" });
-    else if (work) Object.assign(state, { view: "work", tab: work[1] });
-    else Object.assign(state, { view: store.get("relay-view") === "services" ? "services" : "work", tab: store.get("relay-tab") || "overview" });
+    const route = parseHash(location.hash);
+    if (route) Object.assign(state, { view: route.view || "work", tab: route.tab || "overview", scope: route.scope || "all" });
+    else {
+      const scope = store.get("relay-scope");
+      Object.assign(state, { view: store.get("relay-view") === "services" ? "services" : "work", tab: store.get("relay-tab") || "overview", scope: SCOPES.includes(scope) ? scope : "all" });
+    }
     store.set("relay-view", state.view);
+    store.set("relay-scope", state.scope);
   }
   function syncHash() {
-    const overview = state.tab === "overview";
-    const hash = state.view === "services" ? (overview ? "#v=services" : `#v=services&p=${state.tab}`) : overview ? "" : `#p=${state.tab}`;
-    history.replaceState(null, "", hash || location.pathname + location.search);
+    const parts = [];
+    if (state.view === "services") parts.push("v=services");
+    if (state.tab !== "overview") parts.push(`p=${state.tab}`);
+    if (state.scope !== "all") parts.push(`s=${state.scope}`);
+    history.replaceState(null, "", parts.length ? `#${parts.join("&")}` : location.pathname + location.search);
   }
   function setTab(id) {
     state.tab = id;
@@ -2210,7 +2258,25 @@ globalThis.RelayCore = (() => {
     syncHash();
     render();
   }
+  function setScope(scope) {
+    if (state.scope === scope) return;
+    state.scope = scope;
+    store.set("relay-scope", scope);
+    // A project outside the new scope can't stay open.
+    if (state.tab !== "overview" && !orderedProjects(scoped(), Date.now()).some((p) => p.id === state.tab)) {
+      state.tab = "overview";
+      store.set("relay-tab", "overview");
+    }
+    syncHash();
+    render();
+  }
   applyRoute();
+
+  function renderScope() {
+    $("scope-switch").replaceChildren(...SCOPES.map((s) => el("button", {
+      type: "button", id: `scope-${s}`, "aria-pressed": String(state.scope === s), onclick: () => setScope(s),
+    }, SCOPE_LABEL[s])));
+  }
 
   function renderSwitch(svc) {
     const mk = (view, label, count) => el("button", { type: "button", id: `view-${view}`, "aria-pressed": String(state.view === view), onclick: () => setView(view) },
@@ -2218,7 +2284,7 @@ globalThis.RelayCore = (() => {
     $("view-switch").replaceChildren(mk("work", "Work"), mk("services", "Services", svc.warnings.length));
   }
 
-  function renderTabs(projects, svc) {
+  function renderTabs(projects, svc, data) {
     const nav = $("tabs");
     nav.replaceChildren();
     const selected = projects.some((p) => p.id === state.tab) ? state.tab : "overview";
@@ -2229,7 +2295,7 @@ globalThis.RelayCore = (() => {
     }, extra, label);
     const b = mk("overview", "Overview", null);
     const services = state.view === "services";
-    const badge = (slug) => (services ? (slug ? svc.projects.find((x) => x.slug === slug)?.warnings.length : svc.warnings.length) : actionable(state, slug, Date.now()).length) || 0;
+    const badge = (slug) => (services ? (slug ? svc.projects.find((x) => x.slug === slug)?.warnings.length : svc.warnings.length) : actionable(data, slug, Date.now()).length) || 0;
     const badgeTitle = services ? "Services to check" : "Open items that need you";
     const allOpen = badge(null);
     if (allOpen) b.append(el("span", { class: "count", title: badgeTitle }, allOpen));
@@ -2237,6 +2303,8 @@ globalThis.RelayCore = (() => {
     for (const p of projects) {
       const t = mk(p.id, p.name, el("span", { class: `dot state s-${st(p.status)}` }));
       if (p.complete) { t.classList.add("foil"); t.title = "All done for now"; }
+      // Only when everything is shown: which projects are work ones.
+      if (state.scope === "all" && p.scope === "work") t.append(el("span", { class: "scope-tag", title: "Work project" }, "work"));
       const n = badge(p.id);
       if (n) t.append(el("span", { class: "count", title: badgeTitle }, n));
       nav.append(t);
@@ -2279,13 +2347,15 @@ globalThis.RelayCore = (() => {
   }
 
   function render() {
-    const projects = orderedProjects(state, Date.now());
-    const svc = servicesSummary(state, Date.now());
+    const data = scoped();
+    const projects = orderedProjects(data, Date.now());
+    const svc = servicesSummary(data, Date.now());
     // A linked project may simply not have arrived yet; only give up on it once both collections
     // that define projects have loaded.
     if (state.tab !== "overview" && state.loaded.projects && state.loaded.streams && !projects.some((p) => p.id === state.tab)) state.tab = "overview";
     const focusId = document.activeElement?.id;
-    renderTabs(projects, svc);
+    renderTabs(projects, svc, data);
+    renderScope();
     renderSwitch(svc);
     renderUsage();
     const main = $("main");
@@ -2315,7 +2385,9 @@ globalThis.RelayCore = (() => {
       if (f.tagName === "TEXTAREA") f.setSelectionRange(f.value.length, f.value.length);
     }
     // A stamp ahead of now (an agent with a wrong date) must not hide the real last update.
-    const latest = [...projects.map((x) => x.updatedAt), ...state.needs.map((x) => x.updatedAt || x.createdAt)]
+    // The last update is about the whole board, whatever scope is shown.
+    const everything = state.scope === "all" ? projects : orderedProjects(state, Date.now());
+    const latest = [...everything.map((x) => x.updatedAt), ...state.needs.map((x) => x.updatedAt || x.createdAt)]
       .filter((x) => ts(x) && !isFuture(x, Date.now())).sort((a, b) => ts(a) - ts(b)).pop();
     const sub = $("sub");
     sub.classList.toggle("bad", state.paused);

@@ -22,6 +22,7 @@ It is a single-file [claude.ai artifact](https://support.anthropic.com/en/articl
 - **Plan usage.** Weekly and 5-hour usage bars for the Claude plan, with an even-pace marker and a projection to the weekly reset.
 - **History that never fills up.** Done items fold away, move to a per-project History after 7 days, and after 30 days are condensed into one archive record per project and month.
 - **Services and their cost.** A second view, switched with Work | Services in the header, shows for each project which third-party services it uses (payments, database, hosting, email and so on) and what they cost per month, with totals per currency (never converted). It warns about a removed service that still costs money, a bill that jumped, and a cost nobody has confirmed for 45 days. You can type in a cost for any service; a scanner run fills in the rest.
+- **Work and Private.** Mark a project as work or private and filter the whole board with All | Work | Private. The choice is remembered and part of the link; work projects carry a small marker in All.
 - **Foldable sections** that remember what you folded, a cross-project activity feed, and a layout that works on a phone.
 
 ![Since you last looked, opened](docs/screenshots/digest.png)

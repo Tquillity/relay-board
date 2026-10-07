@@ -25,6 +25,8 @@ const SCENARIOS = {
   keyboard: "",
   "services-cost": "#v=services&p=p",
   "stream-fold": "#p=p",
+  scope: "",
+  "scope-route": "#p=home&s=work",
 };
 
 function buildPage() {
@@ -133,6 +135,50 @@ if (!chrome) {
     assert.equal(r.doc.answer.choice, "A");
     assert.match(r.after, /Waiting for a chat to pick it up/);
     assert.doesNotMatch(r.after, /Send again/);
+  });
+
+  test("the Work | Private filter shows only that scope's tabs, needs and cards, and keeps its choice", () => {
+    const r = result("scope");
+    assert.deepEqual(r.all.tabs, ["overview", "job", "home", "bare", "empty"]);
+    assert.deepEqual(r.all.tags, ["job", "empty"], "work projects carry a marker only when everything is shown");
+    assert.deepEqual(r.all.pressed, ["All"]);
+    assert.equal(r.all.badge, "3");
+    assert.equal(r.all.hash, "");
+
+    assert.deepEqual(r.work.tabs, ["overview", "job", "empty"]);
+    assert.deepEqual(r.work.tags, []);
+    assert.deepEqual(r.work.pressed, ["Work"]);
+    assert.deepEqual(r.work.needs, ["job need"]);
+    assert.deepEqual(r.work.cards, ["Job", "Quiet"]);
+    assert.equal(r.work.badge, "1");
+    assert.equal(r.work.hash, "#s=work");
+    assert.equal(r.work.stored, "work");
+
+    assert.deepEqual(r.priv.tabs, ["overview", "home", "bare"]);
+    assert.deepEqual(r.priv.pressed, ["Private"]);
+    assert.deepEqual([...r.priv.needs].sort(), ["bare need", "home need"]);
+    assert.deepEqual([...r.priv.cards].sort(), ["Bare", "Home"]);
+    assert.equal(r.priv.badge, "2");
+    assert.equal(r.priv.hash, "#s=private");
+    assert.equal(r.priv.stored, "private");
+
+    assert.deepEqual(r.afterUpdate.tabs, r.priv.tabs, "a live update keeps the filter");
+    assert.deepEqual(r.afterUpdate.pressed, ["Private"]);
+
+    assert.equal(r.open.selected, "home");
+    assert.equal(r.open.hash, "#p=home&s=private");
+    assert.equal(r.fellBack.selected, "overview", "an open project outside the new scope falls back to the overview");
+    assert.equal(r.fellBack.hash, "#s=work");
+    assert.deepEqual(r.back.pressed, ["All"]);
+    assert.equal(r.back.hash, "");
+    assert.equal(r.back.stored, "all");
+  });
+
+  test("a link whose scope hides its project opens the overview", () => {
+    const r = result("scope-route");
+    assert.equal(r.selected, "overview");
+    assert.deepEqual(r.tabs, ["overview", "job"]);
+    assert.deepEqual(r.pressed, ["Work"]);
   });
 
   test("the tabs follow the keyboard pattern for tabs", () => {

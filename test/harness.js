@@ -319,6 +319,63 @@
       };
     },
 
+    // The All | Work | Private filter: what each choice shows, and that it survives a re-render.
+    async scope() {
+      DATA.projects.job = { ...project("Job"), scope: "work", order: 1 };
+      DATA.projects.home = { ...project("Home"), scope: "private", order: 2 };
+      DATA.projects.bare = { ...project("Bare"), order: 3 };
+      DATA.projects.empty = { ...project("Quiet"), scope: "work", order: 4 };
+      for (const slug of ["job", "home", "bare"]) {
+        DATA.streams[`${slug}--a`] = stream(slug, `${slug} stream`);
+        DATA.needs[`n-${slug}`] = { project: slug, kind: "task", title: `${slug} need`, createdAt: at(H) };
+      }
+      const snap = () => ({
+        tabs: [...document.querySelectorAll('[role="tab"]')].map((t) => t.dataset.tab),
+        tags: [...document.querySelectorAll(".scope-tag")].map((t) => t.closest('[role="tab"]').dataset.tab),
+        pressed: [...document.querySelectorAll("#scope-switch button")].filter((b) => b.getAttribute("aria-pressed") === "true").map(text),
+        needs: [...document.querySelectorAll("li.need .need-title")].map(text),
+        cards: [...document.querySelectorAll("article.card h3")].map(text),
+        badge: text(q("#tab-overview .count")),
+        hash: location.hash,
+        stored: localStorage.getItem("relay-scope"),
+        selected: q('[role="tab"][aria-selected="true"]')?.dataset.tab,
+      });
+      const click = async (sel) => { q(sel).click(); await wait(50); };
+      return async () => {
+        await until(() => q("#scope-work") && document.querySelectorAll("article.card").length === 4);
+        const all = snap();
+        await click("#scope-work");
+        const work = snap();
+        await click("#scope-private");
+        const priv = snap();
+        // A live update re-renders the page; the choice stays.
+        fire("projects");
+        await wait(80);
+        const afterUpdate = snap();
+        // Open a private project, then switch to Work: it is no longer in scope, so the overview shows.
+        await click("#tab-home");
+        const open = snap();
+        await click("#scope-work");
+        const fellBack = snap();
+        await click("#scope-all");
+        return { all, work, priv, afterUpdate, open, fellBack, back: snap() };
+      };
+    },
+
+    // A link to a project that the link's own scope hides shows the overview.
+    async "scope-route"() {
+      DATA.projects.job = { ...project("Job"), scope: "work" };
+      DATA.projects.home = { ...project("Home"), scope: "private" };
+      return async () => {
+        await wait(300);
+        return {
+          selected: q('[role="tab"][aria-selected="true"]')?.dataset.tab,
+          tabs: [...document.querySelectorAll('[role="tab"]')].map((t) => t.dataset.tab),
+          pressed: [...document.querySelectorAll("#scope-switch button")].filter((b) => b.getAttribute("aria-pressed") === "true").map(text),
+        };
+      };
+    },
+
     // Keyboard use of the project tabs.
     async keyboard() {
       DATA.projects.a = { ...project("Alpha"), order: 1 };

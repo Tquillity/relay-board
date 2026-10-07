@@ -27,9 +27,10 @@ const tabs = (html) => between(html, 'id="tabs"', "</nav>").split("<button").sli
   const open = b.slice(0, b.indexOf(">"));
   const count = b.match(/class="count"[^>]*>(\d+)</);
   // The label is the button's text without its count badge.
-  const inner = b.slice(b.indexOf(">") + 1).replace(/<span class="count"[\s\S]*?<\/span>/, "");
+  const inner = b.slice(b.indexOf(">") + 1).replace(/<span class="count"[\s\S]*?<\/span>/, "").replace(/<span class="scope-tag"[\s\S]*?<\/span>/, "");
   return {
     label: text(inner).trim(),
+    work: /class="scope-tag"/.test(b),
     cls: open.match(/class="([^"]*)"/)?.[1] || "",
     selected: /aria-selected="true"/.test(open),
     count: count ? Number(count[1]) : 0,
@@ -45,6 +46,11 @@ const viewSwitch = (html) => between(html, 'id="view-switch"', "</div>").split("
   pressed: /aria-pressed="true"/.test(b.slice(0, b.indexOf(">"))),
   count: Number(b.match(/class="count"[^>]*>(\d+)</)?.[1] || 0),
 }));
+/** The All | Work | Private filter: the labels of its buttons, and which one is pressed. */
+const scopeSwitch = (html) => {
+  const buttons = between(html, 'id="scope-switch"', "</div>").split("<button").slice(1).map((b) => ({ text: text(b.slice(b.indexOf(">") + 1)), pressed: /aria-pressed="true"/.test(b.slice(0, b.indexOf(">"))) }));
+  return { labels: buttons.map((b) => b.text), pressed: buttons.filter((b) => b.pressed).map((b) => b.text) };
+};
 /** Asserts that every part appears in `haystack`, in the given order. */
 const inOrder = (haystack, parts) => {
   let at = 0;
@@ -67,6 +73,8 @@ if (!chrome) {
     history: "?open=history#p=acme-storefront",
     services: "#v=services",
     servicesAcme: "#v=services&p=acme-storefront",
+    work: "#s=work",
+    privateServices: "#s=private&v=services",
   };
   const dom = {};
   let dir;
@@ -91,6 +99,33 @@ if (!chrome) {
 
   test("tabs list every project: pinned first, the finished one last", () => {
     assert.deepEqual(tabs(dom.overview).map((t) => t.label), ["Overview", "Acme Storefront", "Weather CLI", "Recipe API", "Garden Planner"]);
+  });
+
+  test("in All, only the work project's tab carries a marker", () => {
+    assert.deepEqual(tabs(dom.overview).filter((t) => t.work).map((t) => t.label), ["Recipe API"]);
+    assert.deepEqual(scopeSwitch(dom.overview), { labels: ["All", "Work", "Private"], pressed: ["All"] });
+  });
+
+  test("#s=work shows only the work project: its tab, needs, card and the rest of the overview", () => {
+    assert.deepEqual(scopeSwitch(dom.work), { labels: ["All", "Work", "Private"], pressed: ["Work"] });
+    assert.deepEqual(tabs(dom.work).map((t) => [t.label, t.count, t.work]), [["Overview", 1, false], ["Recipe API", 1, false]]);
+    assert.deepEqual(cards(dom.work).map((c) => c.name), ["Recipe API"]);
+    const needs = text(between(dom.work, 'id="needs-h-all"', "</section>"));
+    assert.match(needs, /Needs you .*1 open/);
+    assert.ok(needs.includes("Free-tier rate limit"));
+    assert.ok(!needs.includes("Reindex production search"));
+    assert.match(text(between(dom.work, 'id="proj-h"', "</section>")), /Projects 1/);
+    assert.deepEqual(viewSwitch(dom.work), [{ label: "Work", pressed: true, count: 0 }, { label: "Services", pressed: false, count: 1 }]);
+  });
+
+  test("#s=private&v=services keeps the Services view to the private projects", () => {
+    assert.deepEqual(scopeSwitch(dom.privateServices), { labels: ["All", "Work", "Private"], pressed: ["Private"] });
+    assert.deepEqual(tabs(dom.privateServices).map((t) => t.label), ["Overview", "Acme Storefront", "Weather CLI", "Garden Planner"]);
+    assert.deepEqual(viewSwitch(dom.privateServices).map((v) => [v.label, v.pressed, v.count]), [["Work", false, 0], ["Services", true, 2]]);
+    const main = text(between(dom.privateServices, 'id="main"', "</main>"));
+    assert.match(main, /Check these 2/);
+    assert.ok(!main.includes("Recipe API") && !main.includes("Neon"));
+    assert.match(text(between(dom.privateServices, 'id="cost"', "</header>").replace(/^[^>]*>/, "")), /^€0 \+ \$127 \/ month$/);
   });
 
   test("tab badges count only what is waiting on the user", () => {

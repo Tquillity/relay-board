@@ -47,6 +47,7 @@ The page itself uses the in-page db API. That API has no field delete (the page 
 | `path` | string | Local folder |
 | `order` | number | Optional tab order (lower first, default 99) |
 | `pinned` | boolean | Set by the user on the page |
+| `scope` | `"work"` or `"private"` | Which All \| Work \| Private filter shows the project. Ask the user whether a new project is Work or Private unless they already said; missing counts as private. |
 | `updatedAt` | ISO string | |
 
 Tab order: pinned first, then projects with recent activity before idle ones, then `order`, then most recently updated. A project is idle (dimmed) when no stream is in progress (anything other than `idle` or `done`), nothing was written for 7 days, and the project isn't complete (see "Finished for now" below).
