@@ -3,8 +3,9 @@
 // message.id, requestId, timestamp, cwd and type: message content is never read into the output.
 // Usage: node scripts/model-usage.mjs [--root <dir>] [--days N | --all] [--roots <dir,dir>] [--out <dir>]
 //   prints { "days": { "<date>": { "projects": { <slug>: { <family>: {in, out, cacheRead, cacheWrite5m,
-//   cacheWrite1h, msgs} } } } } }; with --out, also writes <dir>/d-<date>.json per day (a full models doc).
-import { createReadStream, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+//   cacheWrite1h, msgs} } } } } }; with --out, also writes <dir>/d-<date>.json per day (a full models doc),
+//   replacing any day files an earlier run left there.
+import { createReadStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -217,7 +218,9 @@ async function main() {
   const now = Date.now();
   const summary = await collect({ root: opts.root, days: opts.days, now, roots: opts.roots });
   if (opts.out) {
+    // The folder holds exactly this run's docs: day files from earlier runs are removed first.
     mkdirSync(opts.out, { recursive: true });
+    for (const f of readdirSync(opts.out)) if (/^d-\d{4}-\d\d-\d\d\.json$/.test(f)) unlinkSync(join(opts.out, f));
     for (const { date, doc } of toDocs(summary, now)) {
       writeFileSync(join(opts.out, `d-${date}.json`), JSON.stringify(doc, null, 2) + "\n");
     }

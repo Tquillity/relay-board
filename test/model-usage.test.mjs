@@ -165,6 +165,9 @@ describe("collect and CLI", () => {
 
   test("CLI prints JSON and writes one doc per day with --out", () => {
     const out = join(dir, "out");
+    // A day file left by an earlier run is replaced by this run's set.
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, "d-2000-01-01.json"), "{}");
     const stdout = execFileSync(process.execPath, [SCRIPT, "--root", dir, "--all", "--out", out], { encoding: "utf8" });
     const printed = JSON.parse(stdout);
     assert.deepEqual(Object.keys(printed.days).length, readdirSync(out).length);
