@@ -29,6 +29,12 @@
     --idle-soft: rgba(125, 135, 150, 0.14);
     --you: #ff9a3c;
     --you-soft: rgba(255, 154, 60, 0.14);
+    /* Model families in the models pill, chart and tables; each has 3:1 contrast on the surfaces */
+    --m-opus: #c58cff;
+    --m-sonnet: #8ea8ff;
+    --m-haiku: #6fcf97;
+    --m-fable: #ff8fb3;
+    --m-other: #9aa4b2;
     --radius: 10px;
     --font: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
@@ -408,6 +414,47 @@
   .cost-edit input { width: 9ch; }
   .svc-status { grid-column: 1 / -1; }
 
+  /* Models pill in the plan-usage strip, and the Model usage dialog it opens */
+  button.u-pill { cursor: pointer; }
+  button.u-pill:hover { border-color: var(--accent); }
+  .u-pill.muted-pill .u-name { color: var(--faint); }
+  .m-bar { display: inline-flex; align-self: center; width: 56px; height: 6px; border-radius: 999px; overflow: hidden; background: var(--line); flex: none; }
+  .m-bar i { display: block; height: 100%; background: var(--k); }
+  .u-row .u-side:only-child { grid-column: 1 / -1; align-items: flex-start; }
+  dialog.models-dialog {
+    width: min(960px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; overflow: auto;
+    color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  }
+  dialog.models-dialog::backdrop { background: rgba(5, 8, 12, 0.7); }
+  @media (max-width: 640px) {
+    dialog.models-dialog { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; border-width: 0; }
+  }
+  .m-box { display: flex; flex-direction: column; gap: 16px; padding: var(--pad) 16px 20px; }
+  .m-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 1; background: var(--surface); padding-block: 4px; }
+  .m-head h2 { margin: 0; font-size: 18px; font-weight: 700; }
+  .m-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+  .m-controls label { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--muted); }
+  .m-controls select { font: inherit; font-size: var(--fs-sm); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 3px 8px; min-height: 28px; max-width: 100%; }
+  .m-range { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; background: var(--bg); }
+  .m-range button { border: 0; border-radius: 999px; padding: 2px 12px; background: transparent; color: var(--muted); font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
+  .m-range button:hover { color: var(--text); }
+  .m-range button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+  .m-sec { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .m-stack { display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: var(--line); }
+  .m-stack i { display: block; height: 100%; background: var(--k); }
+  .m-chart svg { width: 100%; height: auto; display: block; }
+  .m-chart .btn-row { font-size: 11px; color: var(--muted); gap: 4px 14px; }
+  .m-table-wrap { overflow-x: auto; border: 1px solid var(--line-soft); border-radius: 8px; }
+  table.m-table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: var(--fs-sm); }
+  .m-table th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .m-table td { padding: 6px 10px; border-top: 1px solid var(--line-soft); vertical-align: baseline; }
+  .m-table tbody tr:first-child td { border-top: 0; }
+  .m-table .num { text-align: right; white-space: nowrap; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .m-table tfoot td { border-top: 1px solid var(--line); font-weight: 600; }
+  .m-table .share { color: var(--faint); font-weight: 400; margin-left: 6px; }
+  .m-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; background: var(--k); }
+  .m-note { margin: 0; color: var(--muted); font-size: var(--fs-sm); max-width: 90ch; }
+
   .notice { color: var(--muted); font-size: var(--fs-sm); border: 1px dashed var(--line); border-radius: var(--radius); padding: var(--pad); }
   .empty { color: var(--muted); font-size: var(--fs-sm); margin: 0; }
   .toast {
@@ -432,6 +479,7 @@
 <nav class="tabs" id="tabs" role="tablist" aria-label="Projects"></nav>
 <main id="main" role="tabpanel"></main>
 <div class="toast" id="toast" role="status" hidden></div>
+<dialog class="models-dialog" id="models-dialog" aria-labelledby="models-title"></dialog>
 
 <script>
 // ---- Core: pure logic, no DOM ----
@@ -612,6 +660,9 @@ globalThis.RelayCore = (() => {
       ...data,
       projects: only("projects", (d) => d.id), streams: only("streams", (d) => d.project), needs: only("needs", (d) => d.project),
       archive: only("archive", (d) => d.project), services: only("services", (d) => d.id),
+      // Model usage docs carry their projects inside; keep only the ones in scope. Slugs without a
+      // project doc (like "general") count as private.
+      ...(Array.isArray(data.models) ? { models: data.models.filter(isObj).map((d) => ({ ...d, projects: Object.fromEntries(Object.entries(isObj(d.projects) ? d.projects : {}).filter(([slug]) => keep(slug))) })) } : {}),
     };
   }
 
@@ -952,11 +1003,105 @@ globalThis.RelayCore = (() => {
     };
   }
 
+  // ---- Model usage ----------------------------------------------------
+  // models/d-<YYYY-MM-DD> holds one local day of token counts per project and model family, counted
+  // from Claude Code's local chat transcripts by a scheduled script (see PROTOCOL.md). Prices are an
+  // estimate only; the plan's own limits are the usage bars.
+  const MODEL_FAMILIES = ["opus", "sonnet", "haiku", "fable", "other"];
+  const MODEL_LABEL = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku", fable: "Fable", other: "Other" };
+  // USD per million tokens at API list prices, 2026-10.
+  const PRICES = {
+    opus: { in: 4, out: 20, cacheRead: 0.2, cacheWrite5m: 5, cacheWrite1h: 8 },
+    sonnet: { in: 2, out: 10, cacheRead: 0.2, cacheWrite5m: 2.5, cacheWrite1h: 4 },
+    haiku: { in: 0.1, out: 0.5, cacheRead: 0.01, cacheWrite5m: 0.125, cacheWrite1h: 0.2 },
+    fable: { in: 10, out: 50, cacheRead: 0.25, cacheWrite5m: 12.5, cacheWrite1h: 20 },
+  };
+  PRICES.other = PRICES.sonnet;
+  const TOKEN_FIELDS = ["in", "out", "cacheRead", "cacheWrite5m", "cacheWrite1h"];
+  const OPUS_WARN = 60;                     // the models pill turns amber above this Opus share of the cost, in %
+  const MODEL_RANGES = ["today", "30d", "all"];
+  const MODEL_RANGE_LABEL = { today: "Today", "30d": "30 days", all: "All time" };
+  const MODEL_DAYS = 30;
+
+  const pad2 = (n) => String(n).padStart(2, "0");
+  // The viewer's local calendar date, YYYY-MM-DD, `back` days before the day of `ms`.
+  function localDate(ms, back = 0) {
+    const d = new Date(ms);
+    const e = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back);
+    return `${e.getFullYear()}-${pad2(e.getMonth() + 1)}-${pad2(e.getDate())}`;
+  }
+  const countOf = (e, k) => (isObj(e) && num(e[k]) != null && e[k] > 0 ? e[k] : 0);
+  const modelCost = (family, e) => TOKEN_FIELDS.reduce((sum, k) => sum + countOf(e, k) * PRICES[family][k], 0) / 1e6;
+  const modelTokens = (e) => TOKEN_FIELDS.reduce((sum, k) => sum + countOf(e, k), 0);
+  // What counts against a limit more than a cache read does: everything except cache reads.
+  const modelBillable = (e) => modelTokens(e) - countOf(e, "cacheRead");
+  const shareOf = (part, whole) => (whole > 0 ? (part / whole) * 100 : 0);
+
+  // Split model usage by family for the viewer's local today, the last 30 days or everything, for all
+  // projects or one. Shares are percentages of the estimated cost; tokenShare is of the token count.
+  function modelUsage(data, { range = "today", project = null, now } = {}) {
+    const first = range === "today" ? localDate(now) : range === "30d" ? localDate(now, MODEL_DAYS - 1) : "";
+    const last = localDate(now);
+    const docs = rows(data, "models").filter(isObj).map((d) => ({ d, date: /^d-(\d{4}-\d{2}-\d{2})$/.exec(d.id || "")?.[1] || (/^\d{4}-\d{2}-\d{2}$/.test(d.date) ? d.date : null) }))
+      .filter((x) => x.date && x.date >= first && x.date <= last && isObj(x.d.projects))
+      .sort((a, b) => (a.date < b.date ? -1 : 1));
+    const empty = () => ({ tokens: 0, billable: 0, cost: 0, msgs: 0 });
+    const add = (to, family, e) => {
+      to.tokens += modelTokens(e); to.billable += modelBillable(e); to.cost += modelCost(family, e); to.msgs += countOf(e, "msgs");
+    };
+    const byFamily = Object.fromEntries(MODEL_FAMILIES.map((f) => [f, empty()]));
+    const byProject = new Map();
+    const dayMap = new Map();
+    for (const { d, date } of docs) {
+      const day = dayMap.get(date) || { date, ...empty(), byFamily: Object.fromEntries(MODEL_FAMILIES.map((f) => [f, empty()])) };
+      dayMap.set(date, day);
+      for (const [slug, fams] of Object.entries(d.projects)) {
+        if (!isObj(fams) || (project && slug !== project)) continue;
+        for (const family of MODEL_FAMILIES) {
+          if (!isObj(fams[family])) continue;
+          const e = fams[family];
+          if (!byProject.has(slug)) byProject.set(slug, { slug, total: empty(), byFamily: Object.fromEntries(MODEL_FAMILIES.map((f) => [f, empty()])) });
+          const pr = byProject.get(slug);
+          for (const to of [byFamily[family], day.byFamily[family], pr.byFamily[family], pr.total]) add(to, family, e);
+          add(day, family, e);
+        }
+      }
+    }
+    const total = empty();
+    for (const f of MODEL_FAMILIES) for (const k of Object.keys(total)) total[k] += byFamily[f][k];
+    const families = MODEL_FAMILIES.map((family) => ({
+      family, label: MODEL_LABEL[family], ...byFamily[family],
+      share: shareOf(byFamily[family].cost, total.cost), tokenShare: shareOf(byFamily[family].tokens, total.tokens),
+    }));
+    const withShares = (o) => ({ ...o, share: Object.fromEntries(MODEL_FAMILIES.map((f) => [f, shareOf(o.byFamily[f].cost, o.total.cost)])) });
+    const projects = [...byProject.values()].map(withShares).sort((a, b) => b.total.cost - a.total.cost || (a.slug < b.slug ? -1 : 1));
+    // One entry per day. The last 30 days are filled in with empty days; "all" lists days that have data.
+    let days = [...dayMap.values()].filter((x) => x.msgs > 0 || x.tokens > 0);
+    if (range === "30d") {
+      days = Array.from({ length: MODEL_DAYS }, (_, i) => localDate(now, MODEL_DAYS - 1 - i))
+        .map((date) => dayMap.get(date) || { date, ...empty(), byFamily: Object.fromEntries(MODEL_FAMILIES.map((f) => [f, empty()])) });
+    }
+    days = days.map((x) => ({ date: x.date, cost: x.cost, tokens: x.tokens, byFamily: Object.fromEntries(MODEL_FAMILIES.map((f) => [f, x.byFamily[f].cost])) }));
+    return {
+      range, project: project || null, hasData: docs.length > 0, total, families, projects, days,
+      opusShare: shareOf(byFamily.opus.cost, total.cost),
+    };
+  }
+
+  // 1234 -> "1.2k", 5600000 -> "5.6M".
+  function formatTokens(n) {
+    const v = num(n) != null && n > 0 ? n : 0;
+    if (v < 1e3) return String(Math.round(v));
+    let x = v / 1e3, i = 0;
+    while (i < 2 && Math.round(x) >= 1e3) { x /= 1e3; i++; }
+    return `${x.toFixed(x < 10 ? 1 : 0).replace(/\.0$/, "")}${["k", "M", "B"][i]}`;
+  }
+
   return {
     // tuning
     MINUTE, HOUR, DAY, WEEK, TICK, QUIET_AFTER, STOPPED_AFTER, WAITING_QUIET_AFTER, DIGEST_MIN_AGE, FEED_PAGE,
     SHOW_DAYS, ARCHIVE_DAYS, ARCHIVE_LEASE_MS, USAGE_KEEP_DAYS, RATE_WINDOW, MIN_ELAPSED, STUCK_AFTER, CLOCK_SKEW,
-    COST_STALE_AFTER, COST_INCREASE_RATIO, COST_INCREASE_MIN,
+    COST_STALE_AFTER, COST_INCREASE_RATIO, COST_INCREASE_MIN, OPUS_WARN,
     STATES, STATE_LABEL, SIZE_WEIGHT, SERVICE_CATEGORIES, SERVICE_CATEGORY_LABEL,
     // basics and incoming docs
     st, safeUrl, appUrl, ts, num, clip, isFuture, ago, span, normalize,
@@ -970,6 +1115,8 @@ globalThis.RelayCore = (() => {
     isOld, hash, itemKey, streamDoneAt, needDoneAt, streamEntry, needEntry, historyFor, archiveStamp, planArchive,
     // services
     validCost, serviceCategory, formatMoney, formatTotals, effectiveCost, serviceWarnings, servicesSummary,
+    // model usage
+    MODEL_FAMILIES, MODEL_LABEL, MODEL_RANGES, MODEL_RANGE_LABEL, MODEL_DAYS, PRICES, localDate, modelCost, modelUsage, formatTokens,
     // plan usage
     readings, valueAt, projectWeek, staleReadings,
     // digest
@@ -988,9 +1135,10 @@ globalThis.RelayCore = (() => {
     orderedProjects, quietness, streamCounts, isSnoozed, answerState, actionable, relayStuck, needsGroups, progressFor, progressColor,
     isOld, streamDoneAt, historyFor, archiveStamp, planArchive, projectWeek, staleReadings, allActivity, digestData,
     SERVICE_CATEGORIES, SERVICE_CATEGORY_LABEL, formatMoney, formatTotals, servicesSummary, SCOPES, scopeData,
+    OPUS_WARN, MODEL_FAMILIES, MODEL_LABEL, MODEL_RANGES, MODEL_RANGE_LABEL, modelUsage, formatTokens,
   } = globalThis.RelayCore;
   const state = {
-    projects: [], streams: [], needs: [], usage: [], archive: [], services: [],
+    projects: [], streams: [], needs: [], usage: [], archive: [], services: [], models: [],
     loaded: {}, fresh: {}, paused: false,
     view: "work", scope: "all", tab: "overview", db: null, ready: false,
     open: {}, drafts: {}, saving: {}, failed: {}, feedFilter: "all", feedLimit: FEED_PAGE,
@@ -1009,6 +1157,13 @@ globalThis.RelayCore = (() => {
       else n.setAttribute(k, v === true ? "" : v);
     }
     for (const kid of kids.flat()) if (kid != null && kid !== false) n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    return n;
+  };
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const svgEl = (tag, attrs = {}, ...kids) => {
+    const n = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    for (const kid of kids) n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
     return n;
   };
   const link = (label, url) => (safeUrl(url) ? el("a", { href: url, target: "_blank", rel: "noopener" }, label) : el("span", {}, label));
@@ -1653,8 +1808,6 @@ globalThis.RelayCore = (() => {
     const W = 600, H = 132, L = 30, R = 8, T = 8, B = 20;
     const x = (off) => L + (Math.min(WEEK, Math.max(0, off)) / WEEK) * (W - L - R);
     const y = (pct) => T + (1 - Math.min(110, Math.max(0, pct)) / 110) * (H - T - B);
-    const NS = "http://www.w3.org/2000/svg";
-    const svgEl = (tag, attrs) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
     const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `${label}: ${p.pct}% used this week` });
     for (const g of [0, 25, 50, 75, 100]) {
       svg.append(svgEl("line", { x1: L, x2: W - R, y1: y(g), y2: y(g), stroke: "var(--line-soft)", "stroke-width": 1 }));
@@ -1696,18 +1849,19 @@ globalThis.RelayCore = (() => {
   function renderUsage() {
     const box = $("usage");
     const latest = [...state.usage].sort((a, b) => ts(a.at) - ts(b.at)).pop();
-    if (!latest) { box.hidden = true; return; }
+    if (!latest && !state.models.length) { box.hidden = true; return; }
     box.hidden = false;
     const side = el("div", { class: "u-side" });
-    const five = latest.fiveHour;
-    if (num(five?.pct) != null && ts(five.resetsAt) > Date.now()) {
+    const five = latest?.fiveHour;
+    if (latest && num(five?.pct) != null && ts(five.resetsAt) > Date.now()) {
       side.append(el("span", { class: `u-pill${five.pct >= 85 ? " hot" : ""}`, title: five.pct >= 85 ? "Close to the 5-hour limit. Hold off on starting big jobs." : "" },
         el("span", { class: "u-name" }, "5-hour"), el("span", { class: "mono" }, `${five.pct}%`),
         el("span", { class: "dim-text" }, five.pct >= 85 ? `near limit · resets ${clock(ts(five.resetsAt))}` : `resets ${clock(ts(five.resetsAt))}`)));
-    } else {
+    } else if (latest) {
       side.append(el("span", { class: "u-pill" }, el("span", { class: "u-name" }, "5-hour"), el("span", { class: "dim-text" }, "window reset")));
     }
-    side.append(el("span", {}, "Reading ", timeEl(latest.at), latest.project ? ` · ${latest.project}` : ""));
+    side.append(modelsPill());
+    if (latest) side.append(el("span", {}, "Reading ", timeEl(latest.at), latest.project ? ` · ${latest.project}` : ""));
     const row = el("div", { class: "u-row" }, ...[weekMeter("Weekly · all models", "weekAll"), weekMeter("Weekly · Fable", "weekFable"), side].filter(Boolean));
     // The charts are only built while the "Week curve" fold is open.
     const key = "sec:usage-chart";
@@ -1719,6 +1873,167 @@ globalThis.RelayCore = (() => {
       if (more.open) renderUsage();
     });
     box.replaceChildren(row, more);
+  }
+
+  // ---- Model usage ----------------------------------------------------
+  // How token use splits across Claude models, from models/d-<date> docs (see PROTOCOL.md). The pill
+  // in the usage strip follows the open tab (that project today, or all projects in the scope); the
+  // dialog it opens can look at today, 30 days or all time, for all projects or one.
+  const MODELS_OPEN_KEY = "relay-models-open";
+  const modelsUi = { range: "today", project: null };
+  const usd = (n) => formatMoney(Math.round(n * 100) / 100, "USD");
+  const pct = (n) => (n > 0 && n < 0.5 ? "<1%" : `${Math.round(n)}%`);
+  const dayLabelOf = (date) => { const [y, m, d] = date.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
+  const openTabSlug = () => (state.tab !== "overview" ? state.tab : null);
+  const openWith = () => (MODEL_RANGES.includes(store.get(MODELS_OPEN_KEY)) ? store.get(MODELS_OPEN_KEY) : "today");
+
+  function modelsPill() {
+    const attrs = { id: "models-pill", type: "button", "aria-haspopup": "dialog", onclick: openModels };
+    if (!state.models.length) {
+      return el("button", { ...attrs, class: "u-pill muted-pill", title: "No model usage has been recorded yet. Click for details." },
+        el("span", { class: "u-name" }, "Models"), el("span", { class: "dim-text" }, "no data yet"));
+    }
+    const u = modelUsage(scoped(), { range: "today", project: openTabSlug(), now: Date.now() });
+    const scope = el("span", { class: "dim-text" }, "today");
+    if (!u.total.cost && !u.total.tokens) {
+      return el("button", { ...attrs, class: "u-pill muted-pill", title: "No model usage recorded today. Click for details." },
+        el("span", { class: "u-name" }, "Models"), scope, el("span", { class: "dim-text" }, "no usage yet"));
+    }
+    const shown = u.families.filter((f) => f.cost > 0);
+    const hot = u.opusShare > OPUS_WARN;
+    return el("button", {
+      ...attrs, class: `u-pill${hot ? " hot" : ""}`,
+      "aria-label": `Model usage today: ${shown.map((f) => `${f.label} ${pct(f.share)}`).join(", ")}${hot ? ", Opus-heavy" : ""}. Open details.`,
+      title: `${hot ? `Opus is over ${OPUS_WARN}% of today's estimated cost. ` : ""}Token use by model, estimated at API list prices. Click for details.`,
+    },
+      el("span", { class: "u-name" }, "Models"), scope,
+      el("span", { class: "m-bar", "aria-hidden": "true" }, shown.map((f) => el("i", { style: `width:${f.share}%;--k:var(--m-${f.family})` }))),
+      el("span", { class: "mono" }, shown.map((f) => `${f.label} ${pct(f.share)}`).join(" · ")),
+      hot ? el("span", { class: "dim-text" }, "Opus-heavy") : null);
+  }
+
+  const modelsDialog = () => $("models-dialog");
+  function openModels() {
+    modelsUi.range = openWith();
+    modelsUi.project = openTabSlug();
+    renderModels();
+    const d = modelsDialog();
+    if (d.open) return;
+    if (typeof d.showModal === "function") d.showModal(); else d.setAttribute("open", "");
+  }
+  // Focus goes back to the pill, which the page has redrawn since, so it is looked up again.
+  const afterModelsClosed = () => $("models-pill")?.focus();
+  function closeModels() {
+    const d = modelsDialog();
+    if (!d.open) return;
+    if (typeof d.close === "function") d.close(); else { d.removeAttribute("open"); afterModelsClosed(); }
+  }
+  modelsDialog().addEventListener("close", afterModelsClosed);
+  modelsDialog().addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeModels(); } });
+  modelsDialog().addEventListener("click", (e) => { if (e.target === modelsDialog()) closeModels(); });
+
+  // One stacked bar per day, by estimated cost. Each day's exact numbers are in its tooltip.
+  function modelsChart(u) {
+    const W = 640, H = 170, L = 46, R = 8, T = 8, B = 22;
+    const max = Math.max(...u.days.map((d) => d.cost), 0.01);
+    const unit = 10 ** Math.floor(Math.log10(max));
+    const top = [1, 2, 2.5, 5, 10].map((m) => m * unit).find((v) => v >= max);
+    const y = (v) => T + (1 - v / top) * (H - T - B);
+    const slot = (W - L - R) / u.days.length, bar = Math.max(2, slot * 0.7);
+    const svg = svgEl("svg", {
+      viewBox: `0 0 ${W} ${H}`, role: "img",
+      "aria-label": `Estimated cost per day, from ${dayLabelOf(u.days[0].date)} to ${dayLabelOf(u.days[u.days.length - 1].date)}, by model`,
+    });
+    for (const g of [0, top / 2, top]) {
+      svg.append(svgEl("line", { x1: L, x2: W - R, y1: y(g), y2: y(g), stroke: "var(--line-soft)", "stroke-width": 1 }));
+      svg.append(svgEl("text", { x: L - 6, y: y(g) + 3, "text-anchor": "end", fill: "var(--faint)", "font-size": 9, "font-family": "var(--mono)" }, usd(g)));
+    }
+    const every = Math.ceil(u.days.length / 8);
+    u.days.forEach((day, i) => {
+      const x = L + i * slot + (slot - bar) / 2;
+      const parts = MODEL_FAMILIES.filter((f) => day.byFamily[f] > 0);
+      const g = svgEl("g", {}, svgEl("title", {},
+        `${dayLabelOf(day.date)}: ${usd(day.cost)} est., ${formatTokens(day.tokens)} tokens` + (parts.length ? `. ${parts.map((f) => `${MODEL_LABEL[f]} ${usd(day.byFamily[f])}`).join(", ")}` : ". No usage")));
+      let base = 0;
+      for (const f of parts) {
+        const h = (day.byFamily[f] / top) * (H - T - B);
+        g.append(svgEl("rect", { x, width: bar, y: y(0) - base - h, height: Math.max(h, 0.5), fill: `var(--m-${f})` }));
+        base += h;
+      }
+      // A wider invisible target, so a thin or empty day still has its tooltip.
+      g.append(svgEl("rect", { x: L + i * slot, width: slot, y: T, height: H - T - B, fill: "transparent" }));
+      svg.append(g);
+      if (i % every === 0) svg.append(svgEl("text", { x: x + bar / 2, y: H - 6, "text-anchor": "middle", fill: "var(--faint)", "font-size": 9 }, dayLabelOf(day.date)));
+    });
+    return svg;
+  }
+
+  function modelsBody(u) {
+    const frag = document.createDocumentFragment();
+    if (!u.total.cost && !u.total.tokens) {
+      frag.append(el("p", { class: "notice" }, state.models.length
+        ? "No model usage recorded for this selection."
+        : "No model usage has been recorded yet. A scheduled script counts it from Claude Code's local chats and writes one doc per day (see PROTOCOL.md)."));
+      return frag;
+    }
+    const used = u.families.filter((f) => f.tokens > 0);
+    const famOf = (f) => u.families.find((x) => x.family === f);
+    // 1) By model: a stacked bar and its legend table, so colour is never the only signal.
+    const sec1 = el("section", { class: "m-sec", "aria-labelledby": "models-h-by" }, el("h3", { class: "sub-h", id: "models-h-by" }, "By model"),
+      el("div", { class: "m-stack", role: "img", "aria-label": `Share of estimated cost: ${used.map((f) => `${f.label} ${pct(f.share)}`).join(", ")}` },
+        used.map((f) => el("i", { style: `width:${f.share}%;--k:var(--m-${f.family})` }))));
+    sec1.append(el("div", { class: "m-table-wrap" }, el("table", { class: "m-table" },
+      el("thead", {}, el("tr", {}, th("Model"), th("Tokens", "num"), el("th", { scope: "col", class: "num", title: "Tokens without cache reads" }, "Without cache reads"), th("Est. cost", "num"), th("Share", "num"))),
+      el("tbody", {}, used.map((f) => el("tr", {},
+        el("td", {}, el("span", { class: "m-swatch", style: `--k:var(--m-${f.family})`, "aria-hidden": "true" }), f.label),
+        el("td", { class: "num" }, formatTokens(f.tokens)), el("td", { class: "num" }, formatTokens(f.billable)),
+        el("td", { class: "num" }, usd(f.cost)), el("td", { class: "num" }, pct(f.share))))),
+      el("tfoot", {}, el("tr", {}, el("td", {}, "Total"), el("td", { class: "num" }, formatTokens(u.total.tokens)), el("td", { class: "num" }, formatTokens(u.total.billable)),
+        el("td", { class: "num" }, usd(u.total.cost)), el("td", { class: "num" }, "100%"))))));
+    frag.append(sec1);
+    // 2) Per day (a single day needs no chart).
+    if (u.range !== "today" && u.days.length) {
+      frag.append(el("section", { class: "m-sec m-chart", "aria-labelledby": "models-h-day" }, el("h3", { class: "sub-h", id: "models-h-day" }, "Estimated cost per day"),
+        modelsChart(u),
+        el("div", { class: "btn-row" }, used.map((f) => el("span", { class: "key", style: `--k:var(--m-${f.family})` }, el("span", { class: "m-swatch", "aria-hidden": "true" }), f.label)))));
+    }
+    // 3) Per project: estimated cost of each model, and its share of the row.
+    const cols = MODEL_FAMILIES.filter((f) => f !== "other" || famOf("other").tokens > 0);
+    const cell = (cost, share) => el("td", { class: "num" }, cost > 0 ? [usd(cost), el("span", { class: "share" }, pct(share))] : el("span", { class: "dim-text" }, "–"));
+    frag.append(el("section", { class: "m-sec", "aria-labelledby": "models-h-proj" }, el("h3", { class: "sub-h", id: "models-h-proj" }, "By project"),
+      el("div", { class: "m-table-wrap", tabindex: "0", role: "region", "aria-label": "Estimated cost per project and model" }, el("table", { class: "m-table" },
+        el("thead", {}, el("tr", {}, th("Project"), cols.map((f) => th(MODEL_LABEL[f], "num")), th("Total", "num"))),
+        el("tbody", {}, u.projects.map((p) => el("tr", {},
+          el("td", {}, el("strong", {}, projectName(p.slug))),
+          cols.map((f) => cell(p.byFamily[f].cost, p.share[f])),
+          el("td", { class: "num" }, usd(p.total.cost))))),
+        el("tfoot", {}, el("tr", {}, el("td", {}, "All"), cols.map((f) => cell(famOf(f).cost, famOf(f).share)), el("td", { class: "num" }, usd(u.total.cost))))))));
+    frag.append(el("p", { class: "m-note" }, "Estimated at API list prices; your plan's limits are the bars above. Counts chats on this computer only."));
+    return frag;
+  }
+
+  function renderModels() {
+    const d = modelsDialog();
+    const focusId = d.contains(document.activeElement) ? document.activeElement.id : null;
+    const projects = orderedProjects(scoped(), Date.now());
+    if (modelsUi.project && !projects.some((p) => p.id === modelsUi.project)) modelsUi.project = null;
+    const u = modelUsage(scoped(), { range: modelsUi.range, project: modelsUi.project, now: Date.now() });
+    const projectSel = el("select", { id: "models-project", onchange: (e) => { modelsUi.project = e.target.value || null; renderModels(); } },
+      el("option", { value: "" }, "All projects"),
+      projects.map((p) => el("option", { value: p.id, selected: p.id === modelsUi.project }, p.name)));
+    const openSel = el("select", { id: "models-openwith", onchange: (e) => { store.set(MODELS_OPEN_KEY, e.target.value); renderModels(); } },
+      MODEL_RANGES.map((r) => el("option", { value: r, selected: r === openWith() }, MODEL_RANGE_LABEL[r])));
+    d.replaceChildren(el("div", { class: "m-box" },
+      el("div", { class: "m-head" }, el("h2", { id: "models-title" }, "Model usage"),
+        el("button", { type: "button", class: "btn", id: "models-close", onclick: closeModels }, "Close")),
+      el("div", { class: "m-controls" },
+        el("div", { class: "m-range", role: "group", "aria-label": "Time range" },
+          MODEL_RANGES.map((r) => el("button", { type: "button", id: `models-range-${r}`, "aria-pressed": String(modelsUi.range === r), onclick: () => { modelsUi.range = r; renderModels(); } }, MODEL_RANGE_LABEL[r]))),
+        el("label", {}, "Project", projectSel),
+        el("label", {}, "Open with", openSel)),
+      modelsBody(u)));
+    const f = focusId && document.getElementById(focusId);
+    if (f) f.focus();
   }
 
   let pruned = false;
@@ -2175,6 +2490,7 @@ globalThis.RelayCore = (() => {
     });
     sub("archive", (rows) => { state.archive = rows.filter((r) => r.id !== "_lock"); });
     sub("services", (rows) => { state.services = rows; });
+    sub("models", (rows) => { state.models = rows; if (modelsDialog().open) renderModels(); });
     db.collection("usage").onSnapshot((snap) => {
       state.usage = docs("usage", snap);
       renderUsage();

@@ -35,3 +35,13 @@ for (const text of ["text", "muted", "faint"]) {
     }
   });
 }
+
+// The model colours mark bars and swatches (never text), so they need 3:1 against the surfaces behind them.
+test("every model colour is distinguishable from the surfaces it sits on", () => {
+  for (const family of ["opus", "sonnet", "haiku", "fable", "other"]) {
+    for (const bg of ["surface", "surface-2"]) {
+      const ratio = contrast(token(`m-${family}`), token(bg));
+      assert.ok(ratio >= 3, `--m-${family} on --${bg} is ${ratio.toFixed(2)}:1, below 3:1`);
+    }
+  }
+});

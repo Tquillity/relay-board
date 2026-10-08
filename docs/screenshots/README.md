@@ -21,9 +21,11 @@ shot project  1280,1500 "#p=acme-storefront"
 shot digest   1280,720  "?open=since"
 shot services 1280,1000 "#v=services"
 shot history  1280,560  "?open=history&only=history#p=acme-storefront"
+shot models   1280,1000 "?open=models&models=30d"
 ```
 
 - `?open=<word>` unfolds the sections whose header starts with that word. `since` is the "Since you last looked" strip.
+- `?open=models` opens the Model usage dialog; `&models=30d` makes it start on that range.
 - `?only=history` hides everything on a project tab except its History section.
 - Both hooks live in `demo/screenshot-hooks.js`.
 - A fresh `--user-data-dir` for each shot starts every section in its default state, and lets this run while your normal Chrome is open.

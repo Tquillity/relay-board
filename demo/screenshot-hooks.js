@@ -1,5 +1,6 @@
 // URL switches used only to take the README screenshots of the demo; the real board has none.
 //   ?open=history,finished  unfolds matching section headers and "Show …" lists
+//   ?open=models            opens the Model usage dialog; add &models=30d (or all) to start on that range
 //   ?only=history           hides every section of a project view except its header and History
 (() => {
   // The page renders once the fonts stylesheet has loaded and the mock's first snapshots arrive,
@@ -7,11 +8,21 @@
   const RETRY_MS = 100, GIVE_UP_MS = 3000;
   const q = new URLSearchParams(location.search);
 
+  if (["today", "30d", "all"].includes(q.get("models"))) {
+    try { localStorage.setItem("relay-models-open", q.get("models")); } catch {}
+  }
+
   if (q.get("open")) {
     const pending = new Set(q.get("open").split(","));
     const started = Date.now();
     const unfold = () => {
       for (const word of [...pending]) {
+        // The Model usage dialog, opened from the pill in the usage strip
+        if (word === "models") {
+          const pill = document.getElementById("models-pill");
+          if (pill) { pill.click(); pending.delete(word); }
+          continue;
+        }
         // "Show N finished workstreams" and similar lists
         const re = new RegExp(`^Show .*${word}`, "i");
         const lists = [...document.querySelectorAll(".collapser")].filter((b) => re.test(b.textContent));

@@ -27,6 +27,7 @@ const SCENARIOS = {
   "stream-fold": "#p=p",
   scope: "",
   "scope-route": "#p=home&s=work",
+  models: "",
 };
 
 function buildPage() {
@@ -256,5 +257,34 @@ if (!chrome) {
     assert.ok(r.expanded.hasSteps && r.expanded.hasSide);
     assert.equal(r.expanded.focused, "tg-stream-p--build");
     assert.deepEqual(JSON.parse(r.saved), { "stream:p--build": true, "stream:p--empty": true });
+  });
+
+  test("the models pill opens a dialog with range and project controls, remembers the opening range, and Escape returns focus", () => {
+    const r = result("models");
+    // The pill shows the split for all projects today, and the strip shows even without plan readings.
+    assert.equal(r.pill, "ModelstodayOpus 50% · Sonnet 50%");
+    assert.equal(r.usageVisible, true);
+    assert.deepEqual([r.opened.open, r.opened.pressed, r.opened.project, r.opened.openWith], [true, ["Today"], "", "today"]);
+    assert.equal(r.title, "Model usage");
+    assert.equal(r.labelled, "models-title");
+    assert.deepEqual(r.opened.rows, ["Proj", "Quux"]);
+    assert.equal(r.opened.chart, false, "a single day has no chart");
+    // 30 days adds the per-day chart (one bar per day) and includes yesterday's usage.
+    assert.deepEqual(r.thirty.pressed, ["30 days"]);
+    assert.equal(r.thirty.chart, true);
+    assert.equal(r.thirty.days, 30);
+    assert.equal(r.thirty.focused, "models-range-30d", "focus stays on the control that was used");
+    // One project: only its row.
+    assert.deepEqual([r.project.project, r.project.rows], ["q", ["Quux"]]);
+    // "Open with" is stored, and used the next time.
+    assert.equal(r.stored, "all");
+    assert.equal(r.afterOpenWith.openWith, "all");
+    assert.deepEqual(r.afterOpenWith.pressed, ["30 days"], "changing it doesn't change the open dialog");
+    assert.deepEqual(r.closed, { open: false, focused: "models-pill" });
+    assert.deepEqual([r.reopened.pressed, r.reopened.project, r.reopened.openWith], [["All time"], "", "all"]);
+    // On a project tab the pill and the dialog follow that project.
+    assert.equal(r.tabPill, "ModelstodayOpus 67% · Sonnet 33%Opus-heavy");
+    assert.deepEqual([r.fromTab.project, r.fromTab.rows], ["p", ["Proj"]]);
+    assert.deepEqual(r.afterClose, { open: false, focused: "models-pill" });
   });
 });

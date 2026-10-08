@@ -20,6 +20,7 @@ It is a single-file [claude.ai artifact](https://support.anthropic.com/en/articl
 - **Since you last looked.** A one-line summary ("3 new for you · 1 shipped · 6 updates in Acme, Weather CLI") that opens into the actual items, each linked to its project.
 - **Quiet-chat detection.** A chat that says it's working but hasn't reported in a while is flagged as quiet, then as possibly stopped.
 - **Plan usage.** Weekly and 5-hour usage bars for the Claude plan, with an even-pace marker and a projection to the weekly reset.
+- **Model usage.** A pill beside the 5-hour bar shows how today's use splits across Opus, Sonnet, Haiku and Fable for the open project (amber when Opus dominates). It opens a dialog with the split over today, 30 days or all time: a stacked bar, a cost-per-day chart and a per-project table. Token counts come from Claude Code's local chats via a small script; cost is an estimate at API list prices.
 - **History that never fills up.** Done items fold away, move to a per-project History after 7 days, and after 30 days are condensed into one archive record per project and month.
 - **Services and their cost.** A second view, switched with Work | Services in the header, shows for each project which third-party services it uses (payments, database, hosting, email and so on) and what they cost per month, with totals per currency (never converted). It warns about a removed service that still costs money, a bill that jumped, and a cost nobody has confirmed for 45 days. You can type in a cost for any service; a scanner run fills in the rest.
 - **Work and Private.** Mark a project as work or private and filter the whole board with All | Work | Private. The choice is remembered and part of the link; work projects carry a small marker in All.
@@ -28,6 +29,8 @@ It is a single-file [claude.ai artifact](https://support.anthropic.com/en/articl
 ![Since you last looked, opened](docs/screenshots/digest.png)
 
 ![Services: what to check, every project's services with their monthly cost, and the same grouped by provider](docs/screenshots/services.png)
+
+![The Model usage dialog: share per model, estimated cost per day and per project](docs/screenshots/models.png)
 
 ![A project tab: progress in the header, and workstreams with sized steps](docs/screenshots/project.png)
 
@@ -70,9 +73,9 @@ npm run test:e2e    # the demo and scripted scenarios in headless Chrome
 
 The tests use Node's built-in test runner, so there is still nothing to install.
 
-- **Unit tests** load the page's core script straight from `index.html` into a sandbox with no DOM, and check it against the rules in [`PROTOCOL.md`](PROTOCOL.md). They cover progress weights and rounding (including a randomised check that done plus waiting-on-you never passes 100%), when a project counts as finished, quiet thresholds, needs, snoozing and stuck answers, History and archiving, usage projections, and the digest. Malformed data, unsafe links and exact boundaries are covered too, as is text contrast (WCAG AA). Every unit test runs against a fixed clock.
+- **Unit tests** load the page's core script straight from `index.html` into a sandbox with no DOM, and check it against the rules in [`PROTOCOL.md`](PROTOCOL.md). They cover progress weights and rounding (including a randomised check that done plus waiting-on-you never passes 100%), when a project counts as finished, quiet thresholds, needs, snoozing and stuck answers, History and archiving, usage projections, model usage (ranges, shares, scope) and the digest. Malformed data, unsafe links and exact boundaries are covered too, as is text contrast (WCAG AA). Every unit test runs against a fixed clock.
 - **End-to-end tests** build the demo, load it in headless Chrome and check what renders: tabs and badges, the progress header, the foil on the finished project, the digest, and History. They also cover the Services overview and a project's services.
-- **Behaviour tests** run the real page against a scriptable fake database ([`test/harness.js`](test/harness.js)) and act on it like a viewer: another chat resuming a card while it is being archived, a slow save that then fails, a live connection dropping, data arriving out of order, malformed docs, reopening and resending answers, and keyboard use of the tabs. One scenario enters, changes and clears a service cost against a slow store.
+- **Behaviour tests** run the real page against a scriptable fake database ([`test/harness.js`](test/harness.js)) and act on it like a viewer: another chat resuming a card while it is being archived, a slow save that then fails, a live connection dropping, data arriving out of order, malformed docs, reopening and resending answers, keyboard use of the tabs, and the Model usage dialog (ranges, project, the remembered opening range, Escape and focus). One scenario enters, changes and clears a service cost against a slow store.
 
 The browser tests are skipped if Chrome isn't found. Set `CHROME=/path/to/chrome` to point at one.
 
@@ -89,6 +92,7 @@ CI runs `npm run check` and `npm test` on every push to `main` and on pull reque
 - The "Open chat" links use the `claude://` scheme, which only opens the chat when the Claude desktop app is installed.
 - The usage projection based on last week's rhythm needs a full week of readings, so it only kicks in during the second week.
 - Plan usage readings come from the Claude Code desktop app's session tools (see [`PROTOCOL.md`](PROTOCOL.md)). "Fable" is one of Claude's model tiers, which has its own weekly limit.
+- Model usage counts only the chats on the computer that ran the script, and its costs are estimates at API list prices, not your bill.
 
 ## Project layout
 

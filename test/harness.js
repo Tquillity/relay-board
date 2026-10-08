@@ -15,7 +15,7 @@
   };
 
   // ---- The fake store ----
-  const DATA = { projects: {}, streams: {}, needs: {}, archive: {}, usage: {}, services: {} };
+  const DATA = { projects: {}, streams: {}, needs: {}, archive: {}, usage: {}, services: {}, models: {} };
   const writes = [];                              // [op, path, data?] for every write, in order
   const hooks = {
     subscribe: (c, s) => s.deliver(),             // when a listener gets its first snapshot
@@ -373,6 +373,63 @@
           tabs: [...document.querySelectorAll('[role="tab"]')].map((t) => t.dataset.tab),
           pressed: [...document.querySelectorAll("#scope-switch button")].filter((b) => b.getAttribute("aria-pressed") === "true").map(text),
         };
+      };
+    },
+
+    // The models pill opens the Model usage dialog: range and project controls, a remembered
+    // starting range, and Escape closes it and returns focus to the pill.
+    async models() {
+      DATA.projects.p = { ...project("Proj"), order: 1 };
+      DATA.projects.q = { ...project("Quux"), order: 2 };
+      const day = (back) => {
+        const d = new Date(), e = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back);
+        return `d-${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${String(e.getDate()).padStart(2, "0")}`;
+      };
+      const entry = (out, msgs = 1) => ({ in: 0, out, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, msgs });
+      DATA.models[day(0)] = { projects: { p: { opus: entry(1e6), sonnet: entry(1e6) }, q: { sonnet: entry(1e6) } } };
+      DATA.models[day(1)] = { projects: { p: { sonnet: entry(2e6) } } };
+      const pill = () => text(q("#models-pill"));
+      const dialog = () => q("#models-dialog");
+      const pressed = () => [...document.querySelectorAll("#models-dialog .m-range button")].filter((b) => b.getAttribute("aria-pressed") === "true").map(text);
+      const rowNames = () => [...document.querySelectorAll("#models-dialog table.m-table")].pop()
+        ? [...[...document.querySelectorAll("#models-dialog table.m-table")].pop().querySelectorAll("tbody tr td:first-child")].map(text) : [];
+      const choose = async (id, value) => { const sel = q(id); sel.value = value; sel.dispatchEvent(new Event("change", { bubbles: true })); await wait(40); };
+      const snap = () => ({
+        open: dialog().open, pressed: pressed(), project: q("#models-project")?.value, openWith: q("#models-openwith")?.value,
+        rows: rowNames(), chart: !!q("#models-dialog .m-chart svg"), days: document.querySelectorAll("#models-dialog .m-chart svg title").length,
+        focused: document.activeElement?.id || null,
+      });
+      return async () => {
+        await until(() => q("#models-pill") && /Opus/.test(text(q("#models-pill"))));
+        const out = { pill: pill(), usageVisible: !q("#usage").hidden };
+        q("#models-pill").focus();
+        q("#models-pill").click();
+        await wait(60);
+        out.opened = snap();
+        out.title = text(q("#models-title"));
+        out.labelled = dialog().getAttribute("aria-labelledby");
+        q("#models-range-30d").focus(); q("#models-range-30d").click(); await wait(40);
+        out.thirty = snap();
+        await choose("#models-project", "q");
+        out.project = snap();
+        await choose("#models-openwith", "all");
+        out.stored = localStorage.getItem("relay-models-open");
+        out.afterOpenWith = snap();
+        document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        await wait(80);
+        out.closed = { open: dialog().open, focused: document.activeElement?.id || null };
+        q("#models-pill").click(); await wait(60);
+        out.reopened = snap();
+        document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        await wait(60);
+        // From a project tab: that project today, and the dialog starts on it.
+        q("#tab-p").click(); await wait(60);
+        out.tabPill = pill();
+        q("#models-pill").click(); await wait(60);
+        out.fromTab = snap();
+        q("#models-close").click(); await wait(60);
+        out.afterClose = { open: dialog().open, focused: document.activeElement?.id || null };
+        return out;
       };
     },
 

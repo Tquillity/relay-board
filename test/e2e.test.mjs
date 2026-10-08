@@ -60,6 +60,9 @@ const inOrder = (haystack, parts) => {
     at = i + part.length;
   }
 };
+/** The models pill's text (without its tag), and the open dialog's text. */
+const pill = (html) => text(between(html, 'id="models-pill"', "</button>").replace(/^[^>]*>/, ""));
+const pillHot = (html) => /<button[^>]*class="u-pill hot"[^>]*id="models-pill"|<button[^>]*id="models-pill"[^>]*class="u-pill hot"/.test(html);
 const header = (html) => text(between(html, 'id="progress"', "</header>").replace(/^[^>]*>/, ""));
 
 if (!chrome) {
@@ -75,6 +78,10 @@ if (!chrome) {
     servicesAcme: "#v=services&p=acme-storefront",
     work: "#s=work",
     privateServices: "#s=private&v=services",
+    weather: "#p=weather-cli",
+    garden2: "#p=garden-planner",
+    models: "?open=models&models=30d",
+    modelsProject: "?open=models&models=all#p=weather-cli",
   };
   const dom = {};
   let dir;
@@ -242,5 +249,45 @@ if (!chrome) {
     // The removed service still costs money, so its fold is open.
     assert.match(main, /Hide 1 no longer found in the code/);
     inOrder(main, ["Algolia", "No longer found in the code but still costs $29 a month", "$29/mo", "entered by you 10d ago"]);
+  });
+
+  test("the models pill beside the 5-hour pill shows today's split for all projects on the overview", () => {
+    assert.equal(pill(dom.overview), "Models today Opus 34% · Sonnet 66% · Haiku <1%");
+    assert.equal(pillHot(dom.overview), false);
+    // It sits in the plan-usage strip, after the 5-hour pill.
+    inOrder(text(between(dom.overview, 'id="usage"', "</section>")), ["5-hour", "Models today", "Reading"]);
+  });
+
+  test("on a project tab the pill shows that project today, amber when Opus dominates", () => {
+    assert.equal(pill(dom.acme), "Models today Opus 19% · Sonnet 80% · Haiku <1%");
+    assert.equal(pillHot(dom.acme), false);
+    assert.equal(pill(dom.weather), "Models today Opus 72% · Sonnet 28% · Haiku <1% Opus-heavy");
+    assert.equal(pillHot(dom.weather), true);
+    assert.equal(pill(dom.garden2), "Models today no usage yet");
+  });
+
+  test("the Work | Private filter limits the pill to the projects in scope", () => {
+    assert.equal(pill(dom.work), "Models today Opus 16% · Sonnet 84% · Haiku <1%");
+  });
+
+  test("the Model usage dialog shows the split, the daily chart and a table per project", () => {
+    assert.match(dom.models, /<dialog[^>]*open/);
+    const d = text(between(dom.models, 'id="models-dialog"', "</dialog>").replace(/^[^>]*>/, ""));
+    inOrder(d, ["Model usage", "Close", "Today 30 days All time", "Project", "All projects", "Open with", "30 days"]);
+    inOrder(d, ["By model", "Opus", "Sonnet", "Haiku", "Fable", "Total", "Estimated cost per day", "By project", "Acme Storefront", "Weather CLI", "Recipe API", "Garden Planner", "All"]);
+    assert.ok(d.includes("Estimated at API list prices; your plan's limits are the bars above. Counts chats on this computer only."));
+    assert.match(between(dom.models, 'id="models-range-30d"', ">"), /aria-pressed="true"/);
+    assert.match(between(dom.models, 'id="models-range-today"', ">"), /aria-pressed="false"/);
+    // One bar per day for the last 30 days, each with its exact numbers in a tooltip.
+    assert.equal((between(dom.models, "<svg", "</svg>").match(/<title>/g) || []).length, 30);
+  });
+
+  test("the dialog starts on the open tab's project and on the stored range", () => {
+    const d = between(dom.modelsProject, 'id="models-dialog"', "</dialog>");
+    assert.match(between(d, 'id="models-range-all"', ">"), /aria-pressed="true"/);
+    assert.match(d, /<option value="weather-cli" selected="">Weather CLI<\/option>/);
+    const t = text(d.replace(/^[^>]*>/, ""));
+    assert.match(t, /By project Project Opus Sonnet Haiku Fable Total Weather CLI/);
+    assert.ok(!t.slice(t.indexOf("By project")).includes("Acme Storefront"), "only the chosen project's row");
   });
 });

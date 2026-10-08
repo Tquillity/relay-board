@@ -198,7 +198,38 @@
       },
     },
     usage: {},
+    models: {},
   };
+  // Model usage per local day for the last 35 days, so the models pill and dialog have something to show.
+  // Deterministic: day 0 is today, and the numbers depend only on how many days back it is.
+  const dayId = (back) => {
+    const d = new Date(now), e = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back);
+    return `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${String(e.getDate()).padStart(2, "0")}`;
+  };
+  // Per project: busiest-day message count, share of messages by model [opus, sonnet, haiku], and which days it works.
+  const MODEL_PROJECTS = {
+    "acme-storefront": { msgs: 220, mix: [0.1, 0.78, 0.12], works: () => true },
+    "weather-cli": { msgs: 90, mix: [0.55, 0.4, 0.05], works: (i) => i % 8 !== 6 },
+    "recipe-api": { msgs: 120, mix: [0.08, 0.82, 0.1], works: (i) => i % 7 < 5 },
+    "garden-planner": { msgs: 60, mix: [0.05, 0.85, 0.1], works: (i) => i >= 9 && i % 3 === 0 },
+  };
+  const PER_MSG = { opus: [30, 1100, 52000], sonnet: [30, 900, 42000], haiku: [30, 500, 20000], fable: [30, 1300, 60000] };
+  const modelEntry = (family, msgs) => {
+    const [inT, outT, cacheRead] = PER_MSG[family];
+    return { in: msgs * inT, out: msgs * outT, cacheRead: msgs * cacheRead, cacheWrite5m: msgs * 200, cacheWrite1h: msgs * 1400, msgs };
+  };
+  for (let i = 0; i < 35; i++) {
+    const projects = {};
+    Object.entries(MODEL_PROJECTS).forEach(([slug, cfg], k) => {
+      if (!cfg.works(i)) return;
+      const total = Math.round(cfg.msgs * (0.5 + ((i * 5 + k * 3) % 9) / 8));
+      const entry = {};
+      ["opus", "sonnet", "haiku"].forEach((family, j) => { const m = Math.round(total * cfg.mix[j]); if (m > 0) entry[family] = modelEntry(family, m); });
+      if (slug === "acme-storefront" && [5, 6, 13].includes(i)) entry.fable = modelEntry("fable", 6);
+      projects[slug] = entry;
+    });
+    DATA.models[`d-${dayId(i)}`] = { date: dayId(i), updatedAt: at(i * D + 30 * M), projects };
+  }
   // A week of plan-usage readings, so the bars and week curve have something to show.
   for (let h = 70; h >= 0; h -= 6) {
     const id = `u-demo-${h}`;

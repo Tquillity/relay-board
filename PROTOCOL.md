@@ -197,6 +197,31 @@ One doc per project (`<slug>` is the project slug). It is written by a scanner r
 
 The Services view warns about: a removed service that still costs money; a cost that rose by more than 25% and at least 5 over `lastMonth`; a cost older than 45 days. A service with no cost at all shows "Cost not set" softly and is not counted as a warning.
 
+### `models/d-<YYYY-MM-DD>`: token use by model, not written by chat agents
+
+One doc per **local calendar day** of the computer that counted it. A scheduled job writes it (`scripts/model-usage.mjs` counts Claude Code's local chat transcripts without any AI; the job then `set`s one doc per day). Chat agents never write it, and the page only reads it.
+
+```json
+{
+  "date": "2026-10-08",
+  "updatedAt": "2026-10-08T18:00:00Z",
+  "projects": {
+    "<slug>": {
+      "opus":   { "in": 1200, "out": 3400, "cacheRead": 560000, "cacheWrite5m": 0, "cacheWrite1h": 25000, "msgs": 42 },
+      "sonnet": { "in": 800, "out": 9100, "cacheRead": 2100000, "cacheWrite5m": 0, "cacheWrite1h": 90000, "msgs": 180 }
+    }
+  }
+}
+```
+
+- The keys under a project are the model families: `opus`, `sonnet`, `haiku`, `fable`, and `other` (anything else). Only families that were used appear.
+- `<slug>` is the project slug, or `general` for chats outside any project. A slug without a project doc counts as private in the All | Work | Private filter.
+- Counts are token counts: `in` (input), `out` (output), `cacheRead`, `cacheWrite5m` and `cacheWrite1h` (cache writes by lifetime), and `msgs` (assistant messages). Missing, negative and non-numeric values count as 0.
+- The page estimates cost from these counts at API list prices (USD per million tokens, per family; `other` is priced like Sonnet). It is an estimate only: the plan's own limits are the usage bars. Shares are shares of the estimated cost.
+- The doc id (`d-<date>`) is the date the page uses; "today" is the viewer's local date. Docs only cover chats on the computer that wrote them.
+
+The models pill in the usage strip shows today's split for the open tab (that project, or all projects in the current scope), and turns amber when Opus is over 60% of today's estimated cost. Its dialog shows today, the last 30 days or all time, per model, per day and per project.
+
 ### `archive/<slug>--<YYYY-MM>`: history, written only by the page
 
 Done items are kept, then slimmed down, by the page itself:
@@ -256,6 +281,7 @@ These run in the browser, so agents never spend tokens on them:
 - "Since you last looked" digest. The last-seen time is kept in the viewer's `localStorage`.
 - The activity feed, built from every stream's `recent`.
 - Usage projections, the even-pace marker and the week curve.
+- The models pill and its Model usage dialog, with cost estimates from the token counts in `models`.
 - Pruning of old usage readings.
 - Moving done items to History after 7 days and archiving them after 30 (see `archive` above).
 - Answering, snoozing, closing and reopening `needs` items, and sending stuck answers again.
